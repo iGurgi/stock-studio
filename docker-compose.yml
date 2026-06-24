@@ -1,0 +1,46 @@
+name: stock-studio
+
+# Recommended layout: dashboard and agent as separate containers from the same
+# image, sharing one SQLite volume. Restart/inspect either independently.
+# For a single all-in-one container instead, see README "Docker → all-in-one".
+
+services:
+  dashboard:
+    build: .
+    image: stock-studio:latest
+    command: ["node", "src/server.js"]
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0           # bind inside the container; exposure is controlled by the port mapping below
+      DB_PATH: /data/studio.db
+      RUN_SCHEDULER: "false"  # the agent service owns the loop, so the dashboard doesn't double-run it
+    ports:
+      # Published to host loopback ONLY. To reach it from your tailnet, either
+      # change this to "<tailscale-ip>:8787:8787" or front it with `tailscale serve`.
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - studio-data:/data
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/api/state"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  agent:
+    image: stock-studio:latest   # reuses the image built by `dashboard`
+    command: ["node", "src/agent/scheduler.js"]
+    env_file: .env
+    environment:
+      DB_PATH: /data/studio.db
+    volumes:
+      - studio-data:/data
+    init: true
+    restart: unless-stopped
+    depends_on:
+      - dashboard
+
+volumes:
+  studio-data:

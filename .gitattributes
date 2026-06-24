@@ -1,0 +1,9 @@
+# Normalize line endings: text files are stored as LF in the repo.
+* text=auto eol=lf
+
+# Files that must stay LF (run inside Docker / sh).
+*.sh text eol=lf
+Dockerfile text eol=lf
+
+# Treat the lockfile as generated to keep diffs quiet.
+package-lock.json linguist-generated=true

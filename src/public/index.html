@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stock Studio — desk console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --ink:#0E1316; --panel:#151D22; --panel-2:#1B252B; --paper:#E9E7DF;
+    --muted:#7E8A91; --gain:#4FB286; --loss:#D96C6C; --brass:#C9A24B;
+    --line:rgba(233,231,223,.08); --line-strong:rgba(233,231,223,.16);
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+    --disp:"Space Grotesk",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ink);color:var(--paper);font-family:var(--disp);
+    -webkit-font-smoothing:antialiased;line-height:1.45}
+  a{color:var(--brass)}
+  .wrap{max-width:1180px;margin:0 auto;padding:22px 20px 80px}
+
+  /* ---- top status bar ---- */
+  .bar{display:flex;flex-wrap:wrap;align-items:center;gap:18px 26px;
+    border:1px solid var(--line);background:linear-gradient(180deg,var(--panel-2),var(--panel));
+    border-radius:14px;padding:16px 20px;margin-bottom:26px}
+  .brand{display:flex;align-items:center;gap:11px;margin-right:auto}
+  .brand h1{font-size:17px;font-weight:600;letter-spacing:.04em;margin:0}
+  .brand small{display:block;color:var(--muted);font-size:11px;letter-spacing:.18em;text-transform:uppercase}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--gain);box-shadow:0 0 0 0 rgba(79,178,134,.5)}
+  .dot.live{animation:pulse 2.4s infinite}
+  .dot.halt{background:var(--loss)}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(79,178,134,.45)}70%{box-shadow:0 0 0 7px rgba(79,178,134,0)}100%{box-shadow:0 0 0 0 rgba(79,178,134,0)}}
+  @media (prefers-reduced-motion:reduce){.dot.live{animation:none}}
+
+  .stat{display:flex;flex-direction:column;gap:2px}
+  .stat .k{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+  .stat .v{font-family:var(--mono);font-size:18px;font-weight:500}
+  .v.gain{color:var(--gain)} .v.loss{color:var(--loss)}
+
+  .halt-btn{font-family:var(--disp);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+    cursor:pointer;border-radius:9px;padding:9px 15px;border:1px solid var(--line-strong);
+    background:transparent;color:var(--paper)}
+  .halt-btn.on{background:var(--loss);border-color:var(--loss);color:#1a0d0d}
+  .halt-btn.off{border-color:rgba(79,178,134,.4);color:var(--gain)}
+
+  /* ---- section headers ---- */
+  .eyebrow{display:flex;align-items:baseline;gap:12px;margin:34px 0 14px}
+  .eyebrow h2{font-size:13px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;margin:0;color:var(--paper)}
+  .eyebrow .meta{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .eyebrow .rule{flex:1;height:1px;background:var(--line)}
+
+  /* ---- the approval gate (hero) ---- */
+  .gate{display:grid;gap:16px}
+  .ticket{position:relative;border:1px solid var(--line-strong);border-radius:14px;overflow:hidden;
+    background:var(--panel);padding:20px 22px 20px 26px}
+  .ticket::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--brass)}
+  .ticket .row1{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .side{font-family:var(--mono);font-weight:700;font-size:13px;letter-spacing:.06em;padding:3px 9px;border-radius:6px}
+  .side.buy{color:var(--gain);background:rgba(79,178,134,.12)}
+  .side.sell{color:var(--loss);background:rgba(217,108,108,.12)}
+  .sym{font-family:var(--mono);font-size:22px;font-weight:700;letter-spacing:.02em}
+  .spec{font-family:var(--mono);font-size:13px;color:var(--muted)}
+  .pill{margin-left:auto;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--brass);
+    border:1px solid rgba(201,162,75,.35);border-radius:20px;padding:4px 11px}
+  .rationale{margin:13px 0 4px;color:#d6d4cc;font-size:14.5px;max-width:74ch}
+  .sim{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:8px}
+  .sim b{color:var(--paper);font-weight:500}
+  .sim .warn{color:var(--brass)}
+
+  .arm{display:flex;align-items:center;gap:10px;margin-top:16px;flex-wrap:wrap}
+  .arm input{font-family:var(--mono);font-size:13px;background:var(--ink);color:var(--paper);
+    border:1px solid var(--line-strong);border-radius:8px;padding:9px 11px;width:150px;letter-spacing:.08em}
+  .arm input::placeholder{color:var(--muted);letter-spacing:.04em}
+  .btn{font-family:var(--disp);font-weight:600;font-size:13px;cursor:pointer;border-radius:8px;padding:9px 16px;border:1px solid var(--line-strong);background:transparent;color:var(--paper)}
+  .btn.approve{background:var(--brass);border-color:var(--brass);color:#1a1405}
+  .btn.approve[disabled]{opacity:.4;cursor:not-allowed;background:transparent;color:var(--muted);border-color:var(--line)}
+  .btn.reject{color:var(--muted)}
+  .btn.reject:hover{color:var(--loss);border-color:rgba(217,108,108,.4)}
+
+  .empty{border:1px dashed var(--line-strong);border-radius:14px;padding:34px;text-align:center;color:var(--muted)}
+  .empty b{display:block;color:var(--paper);font-size:15px;margin-bottom:5px;letter-spacing:.02em}
+
+  /* ---- grids ---- */
+  .cols{display:grid;grid-template-columns:1.15fr .85fr;gap:26px}
+  @media (max-width:820px){.cols{grid-template-columns:1fr}.bar{gap:14px 18px}}
+
+  .card{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:6px 0}
+  .li{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:flex-start}
+  .li:last-child{border-bottom:none}
+  .li .lead{font-family:var(--mono);font-weight:600;font-size:13px;min-width:62px}
+  .li .body{flex:1;font-size:13.5px;color:#cdcbc3}
+  .li .when{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap}
+  .conv{font-family:var(--mono);font-size:11px;color:var(--brass)}
+  .stance{font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:2px 7px;border-radius:5px}
+  .stance.bull{color:var(--gain);background:rgba(79,178,134,.1)}
+  .stance.bear{color:var(--loss);background:rgba(217,108,108,.1)}
+  .stance.neutral{color:var(--muted);background:rgba(126,138,145,.12)}
+  .lvl{width:7px;height:7px;border-radius:50%;margin-top:6px;flex:none;background:var(--muted)}
+  .lvl.warn{background:var(--brass)} .lvl.alert{background:var(--loss)} .lvl.error{background:var(--loss)} .lvl.info{background:var(--muted)}
+
+  /* ---- unlock ---- */
+  .lock{display:flex;gap:8px;align-items:center}
+  .lock input{font-family:var(--mono);font-size:12px;background:var(--ink);color:var(--paper);
+    border:1px solid var(--line-strong);border-radius:8px;padding:8px 10px;width:170px}
+  .locked-note{color:var(--brass);font-size:11px;letter-spacing:.04em}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel-2);
+    border:1px solid var(--line-strong);border-radius:10px;padding:11px 18px;font-size:13px;
+    opacity:0;transition:opacity .25s;pointer-events:none;z-index:9}
+  .toast.show{opacity:1}
+  .warnbar{border:1px solid rgba(201,162,75,.35);background:rgba(201,162,75,.07);color:var(--brass);
+    border-radius:10px;padding:10px 14px;font-size:12.5px;margin-bottom:18px;font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="bar">
+    <div class="brand">
+      <span id="dot" class="dot"></span>
+      <div><h1>STOCK STUDIO</h1><small id="mode">desk console</small></div>
+    </div>
+    <div class="stat"><span class="k">Day P&amp;L</span><span id="pnl" class="v">—</span></div>
+    <div class="stat"><span class="k">Buying power</span><span id="bp" class="v">—</span></div>
+    <div class="stat"><span class="k">Equity value</span><span id="eq" class="v">—</span></div>
+    <div class="stat"><span class="k">Proposals today</span><span id="cnt" class="v">—</span></div>
+    <div class="lock" id="lock">
+      <input id="tok" type="password" placeholder="control token" autocomplete="off" />
+      <button class="btn" id="unlock">Unlock</button>
+    </div>
+    <button id="halt" class="halt-btn">—</button>
+  </div>
+
+  <div id="warns"></div>
+
+  <div class="eyebrow">
+    <h2>Awaiting your sign-off</h2><span class="rule"></span>
+    <span class="meta" id="pendmeta"></span>
+  </div>
+  <div class="gate" id="gate"></div>
+
+  <div class="cols">
+    <div>
+      <div class="eyebrow"><h2>Active theses</h2><span class="rule"></span></div>
+      <div class="card" id="theses"></div>
+    </div>
+    <div>
+      <div class="eyebrow"><h2>Desk activity</h2><span class="rule"></span></div>
+      <div class="card" id="events"></div>
+    </div>
+  </div>
+
+  <div class="eyebrow"><h2>Recent runs</h2><span class="rule"></span></div>
+  <div class="card" id="runs"></div>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let TOKEN = sessionStorage.getItem('cs_token') || '';
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => (n==null||isNaN(n)) ? '—' : '$'+Number(n).toLocaleString(undefined,{maximumFractionDigits:2});
+const ago = (iso) => { if(!iso) return ''; const s=(Date.now()-new Date(iso))/1000;
+  if(s<60) return Math.floor(s)+'s'; if(s<3600) return Math.floor(s/60)+'m';
+  if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; };
+const esc = (s) => String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
+
+async function api(path){ const r=await fetch(path); return r.json(); }
+async function post(path, body){
+  const r=await fetch(path,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+TOKEN},body:JSON.stringify(body||{})});
+  const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||('HTTP '+r.status)); return j;
+}
+
+function setLock(){
+  $('lock').innerHTML = TOKEN
+    ? '<span class="locked-note">● unlocked</span>'
+    : '<input id="tok" type="password" placeholder="control token" autocomplete="off" /><button class="btn" id="unlock">Unlock</button>';
+  if(!TOKEN){ $('unlock').onclick=()=>{ TOKEN=$('tok').value.trim(); if(TOKEN){sessionStorage.setItem('cs_token',TOKEN); setLock(); refresh();} }; }
+}
+
+async function refresh(){
+  try{
+    const s = await api('/api/state');
+    $('dot').className = 'dot ' + (s.halted ? 'halt' : 'live');
+    $('mode').textContent = s.halted ? 'HALTED · monitoring only'
+      : (s.placementEnabled ? 'live · placement armed' : 'live · placement disabled');
+    const pnl=$('pnl'); pnl.textContent = s.portfolio? fmt(s.portfolio.day_pnl_usd) : '—';
+    pnl.className='v '+((s.portfolio?.day_pnl_usd||0)>=0?'gain':'loss');
+    $('bp').textContent = fmt(s.portfolio?.portfolio?.buying_power);
+    $('eq').textContent = fmt(s.portfolio?.portfolio?.equity_value);
+    $('cnt').textContent = s.counts.proposalsToday + ' / ' + s.counts.maxPerDay;
+
+    const halt=$('halt');
+    halt.textContent = s.halted ? 'Resume desk' : 'HALT';
+    halt.className = 'halt-btn ' + (s.halted?'off':'on');
+    halt.onclick = async ()=>{ if(!TOKEN) return toast('unlock first');
+      try{ await post('/api/halt',{halted:!s.halted}); refresh(); }catch(e){ toast(e.message); } };
+
+    $('warns').innerHTML = (s.configProblems&&s.configProblems.length)
+      ? '<div class="warnbar">setup: '+s.configProblems.map(esc).join(' · ')+'</div>'
+      : (!s.placementEnabled ? '<div class="warnbar">placement is disabled — approvals are blocked until PLACEMENT_ENABLED=true</div>' : '');
+
+    renderGate(await api('/api/proposals?status=pending'));
+    renderTheses(await api('/api/theses'));
+    renderEvents(await api('/api/events'));
+    renderRuns(await api('/api/runs'));
+  }catch(e){ console.error(e); }
+}
+
+function renderGate(rows){
+  $('pendmeta').textContent = rows.length ? rows.length+' pending' : '';
+  const g=$('gate');
+  if(!rows.length){ g.innerHTML='<div class="empty"><b>The desk is clear.</b>No trades are waiting on you. The agent keeps researching and will surface a ticket here when it finds a setup worth your call.</div>'; return; }
+  g.innerHTML = rows.map(p=>{
+    const rv=p.review||{};
+    const sim = rv.estimated_cost_usd!=null
+      ? 'sim fill ~ <b>'+fmt(rv.estimated_cost_usd)+'</b>'+(rv.estimated_price?(' @ <b>'+rv.estimated_price+'</b>'):'')
+      : 'sim ~ <b>'+fmt(p.est_cost_usd)+'</b>';
+    const warns = (rv.warnings&&rv.warnings.length)? ' · <span class="warn">'+rv.warnings.map(esc).join(' · ')+'</span>':'';
+    return `<div class="ticket" data-id="${p.id}" data-sym="${esc(p.symbol)}">
+      <div class="row1">
+        <span class="side ${p.side}">${p.side.toUpperCase()}</span>
+        <span class="sym">${esc(p.symbol)}</span>
+        <span class="spec">${p.qty} @ ${p.limit_price!=null?('$'+p.limit_price):p.order_type} · ${esc(p.time_in_force)} · ${esc(p.asset_type)}</span>
+        <span class="pill">needs sign-off</span>
+      </div>
+      <div class="rationale">${esc(p.rationale_md)}</div>
+      <div class="sim">${sim}${warns}</div>
+      <div class="arm">
+        <input placeholder="type ${esc(p.symbol)}" data-confirm />
+        <button class="btn approve" disabled data-approve>Approve &amp; place</button>
+        <button class="btn reject" data-reject>Dismiss</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  g.querySelectorAll('.ticket').forEach(card=>{
+    const id=card.dataset.id, sym=card.dataset.sym;
+    const inp=card.querySelector('[data-confirm]'), ap=card.querySelector('[data-approve]');
+    inp.oninput=()=>{ ap.disabled = inp.value.trim().toUpperCase()!==sym.toUpperCase(); };
+    ap.onclick=async ()=>{ if(!TOKEN) return toast('unlock first');
+      ap.disabled=true; ap.textContent='Placing…';
+      try{ const r=await post('/api/proposals/'+id+'/approve',{confirm:inp.value.trim()});
+        toast('Order placed · '+(r.order_id||'')); refresh();
+      }catch(e){ toast(e.message); ap.textContent='Approve & place'; } };
+    card.querySelector('[data-reject]').onclick=async ()=>{ if(!TOKEN) return toast('unlock first');
+      try{ await post('/api/proposals/'+id+'/reject',{}); refresh(); }catch(e){ toast(e.message); } };
+  });
+}
+
+function renderTheses(rows){
+  $('theses').innerHTML = rows.length ? rows.map(t=>`<div class="li">
+    <span class="lead">${esc(t.symbol)}</span>
+    <span class="body"><span class="stance ${t.stance}">${esc(t.stance)}</span> <span class="conv">c${t.conviction}</span> — ${esc(t.thesis_md)}</span>
+    <span class="when">${ago(t.updated_at)}</span></div>`).join('')
+    : '<div class="li"><span class="body">No theses yet — the research pass will populate this.</span></div>';
+}
+function renderEvents(rows){
+  $('events').innerHTML = rows.slice(0,40).map(e=>`<div class="li">
+    <span class="lvl ${e.level}"></span>
+    <span class="body">${esc(e.message)}</span>
+    <span class="when">${ago(e.ts)}</span></div>`).join('') || '<div class="li"><span class="body">Quiet so far.</span></div>';
+}
+function renderRuns(rows){
+  $('runs').innerHTML = rows.slice(0,12).map(r=>`<div class="li">
+    <span class="lead">${esc(r.kind)}</span>
+    <span class="body">${r.status==='error'?('<span style="color:var(--loss)">error: '+esc(r.error||'')+'</span>'):esc(r.summary||r.status)}</span>
+    <span class="when">${ago(r.started_at)}</span></div>`).join('') || '<div class="li"><span class="body">No runs yet.</span></div>';
+}
+
+setLock();
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>
