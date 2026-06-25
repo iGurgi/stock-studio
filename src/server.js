@@ -1,7 +1,7 @@
 import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { config, assertConfig, equitiesOpen } from './config.js';
+import { config, assertConfig, equitiesOpen, secretsStatus, setSecret } from './config.js';
 import { db, now, logEvent, isHalted, setHalted, proposalsToday } from './db.js';
 import { placeApprovedOrder } from './robinhood.js';
 import { researchPass } from './agent/research.js';
@@ -61,7 +61,34 @@ app.get('/api/runs', (req, res) => {
   res.json(db.prepare('SELECT id, kind, started_at, finished_at, status, summary, error FROM runs ORDER BY id DESC LIMIT 50').all());
 });
 
+// Masked status of the runtime-editable secrets. Never returns the values
+// themselves — only whether each is set, where it came from, and a last-4 hint.
+app.get('/api/settings', (req, res) => {
+  res.json({ secrets: secretsStatus() });
+});
+
 // --- write endpoints (token required) ------------------------------------
+
+// Save (or clear) the runtime secrets. Persisted in the DB so they survive
+// restarts. A field that is omitted is left untouched; an empty string clears
+// the saved value (falling back to the env var, if any).
+app.post('/api/settings', requireToken, (req, res) => {
+  const map = {
+    anthropicApiKey: 'anthropicApiKey',
+    robinhoodMcpToken: 'robinhoodMcpToken',
+    robinhoodAccount: 'robinhoodAccount',
+  };
+  const changed = [];
+  for (const [field, name] of Object.entries(map)) {
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) {
+      setSecret(name, req.body[field]);
+      changed.push(field);
+    }
+  }
+  if (!changed.length) return res.status(400).json({ error: 'no recognized settings in body' });
+  logEvent('info', 'settings', `Operator updated credentials: ${changed.join(', ')}`);
+  res.json({ ok: true, changed, secrets: secretsStatus(), configProblems: assertConfig() });
+});
 
 // The human gate. This is the ONLY way a real order is placed.
 app.post('/api/proposals/:id/approve', requireToken, async (req, res) => {

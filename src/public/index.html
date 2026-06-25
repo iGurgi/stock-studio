@@ -111,6 +111,18 @@
   .toast.show{opacity:1}
   .warnbar{border:1px solid rgba(201,162,75,.35);background:rgba(201,162,75,.07);color:var(--brass);
     border-radius:10px;padding:10px 14px;font-size:12.5px;margin-bottom:18px;font-family:var(--mono)}
+
+  /* ---- credentials ---- */
+  .set-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:13px 18px;border-bottom:1px solid var(--line)}
+  .set-row:last-child{border-bottom:none}
+  .set-row label{min-width:160px;font-size:13px;color:#cdcbc3}
+  .set-row input{flex:1;min-width:200px;font-family:var(--mono);font-size:13px;background:var(--ink);
+    color:var(--paper);border:1px solid var(--line-strong);border-radius:8px;padding:9px 11px}
+  .set-row input:disabled{opacity:.5;cursor:not-allowed}
+  .set-row .status{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:140px;text-align:right}
+  .set-row .status.ok{color:var(--gain)}
+  .set-actions{padding:13px 18px;display:flex;gap:12px;align-items:center}
+  .set-actions .hint{font-size:11.5px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -133,6 +145,12 @@
   </div>
 
   <div id="warns"></div>
+
+  <div class="eyebrow">
+    <h2>Credentials</h2><span class="rule"></span>
+    <span class="meta" id="setmeta"></span>
+  </div>
+  <div class="card" id="settings"></div>
 
   <div class="eyebrow">
     <h2>Awaiting your sign-off</h2><span class="rule"></span>
@@ -203,11 +221,67 @@ async function refresh(){
       ? '<div class="warnbar">setup: '+s.configProblems.map(esc).join(' · ')+'</div>'
       : (!s.placementEnabled ? '<div class="warnbar">placement is disabled — approvals are blocked until PLACEMENT_ENABLED=true</div>' : '');
 
+    renderSettings(await api('/api/settings'));
     renderGate(await api('/api/proposals?status=pending'));
     renderTheses(await api('/api/theses'));
     renderEvents(await api('/api/events'));
     renderRuns(await api('/api/runs'));
   }catch(e){ console.error(e); }
+}
+
+const SECRET_FIELDS = [
+  { key:'anthropicApiKey',   label:'Anthropic API key',   ph:'sk-ant-…' },
+  { key:'robinhoodMcpToken', label:'Robinhood MCP token', ph:'paste token' },
+  { key:'robinhoodAccount',  label:'Robinhood account',   ph:'account number' },
+];
+
+function renderSettings(s){
+  const sec = (s&&s.secrets) || {};
+  // Don't clobber the panel while the operator is mid-edit: if any credential
+  // input is focused or already has text, leave the existing DOM (and the typed
+  // values) untouched until they save or clear it.
+  const live = $('settings').querySelectorAll('[data-secret]');
+  if(live.length){
+    const busy = [...live].some(i => i===document.activeElement || i.value.trim()!=='');
+    if(busy) return;
+  }
+  const allSet = SECRET_FIELDS.every(f => sec[f.key] && sec[f.key].set);
+  $('setmeta').textContent = TOKEN ? (allSet?'all set':'unlocked') : 'unlock to edit';
+  const rows = SECRET_FIELDS.map(f=>{
+    const st = sec[f.key] || {};
+    const status = st.set
+      ? `<span class="status ok">● ${st.source==='env'?'from env':'saved'} ${esc(st.preview||'')}</span>`
+      : `<span class="status">not set</span>`;
+    return `<div class="set-row">
+      <label>${esc(f.label)}</label>
+      <input data-secret="${f.key}" type="password" autocomplete="off"
+        placeholder="${esc(f.ph)}" ${TOKEN?'':'disabled'} />
+      ${status}
+    </div>`;
+  }).join('');
+  $('settings').innerHTML = rows + `<div class="set-actions">
+    <button class="btn approve" id="saveSet" ${TOKEN?'':'disabled'}>Save credentials</button>
+    <span class="hint">${TOKEN
+      ? 'Stored on the server and kept across restarts. Leave a field blank to keep its current value.'
+      : 'Enter the control token above to edit.'}</span>
+  </div>`;
+
+  if(TOKEN){
+    $('saveSet').onclick = async ()=>{
+      const body={};
+      $('settings').querySelectorAll('[data-secret]').forEach(i=>{
+        const v=i.value.trim(); if(v) body[i.dataset.secret]=v;
+      });
+      if(!Object.keys(body).length) return toast('nothing to save — fields are blank');
+      const btn=$('saveSet'); btn.disabled=true; btn.textContent='Saving…';
+      try{ const r=await post('/api/settings',body);
+        toast('Saved · '+(r.changed||[]).join(', '));
+        // clear inputs so the busy-guard releases and refresh shows new status
+        $('settings').querySelectorAll('[data-secret]').forEach(i=>i.value='');
+        refresh();
+      }catch(e){ toast(e.message); btn.disabled=false; btn.textContent='Save credentials'; }
+    };
+  }
 }
 
 function renderGate(rows){

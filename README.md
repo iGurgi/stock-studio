@@ -106,14 +106,21 @@ dashboard together.
 ### Getting the Robinhood token
 
 The connector needs an OAuth bearer token for the Robinhood MCP; it does not run the OAuth flow
-for you. Easiest way to mint one is the MCP inspector:
+for you. Mint one with the bundled helper:
 
 ```bash
-npx @modelcontextprotocol/inspector
+node scripts/get-robinhood-token.mjs
 ```
 
-In it: Transport = Streamable HTTP, URL = `https://agent.robinhood.com/mcp/trading`, open Auth
-settings → Quick OAuth Flow → authorize → copy the access token into `ROBINHOOD_MCP_TOKEN`.
+It discovers the OAuth metadata, registers a local client, prints an authorize URL (open it,
+log in, approve), catches the redirect on `http://localhost:8989/callback`, and exchanges the
+code for tokens — then prints the access token. Paste it into the dashboard's **Credentials**
+panel (or `ROBINHOOD_MCP_TOKEN`). Port busy? `OAUTH_CALLBACK_PORT=9090 node scripts/get-robinhood-token.mjs`.
+
+> **Don't use the MCP inspector for this.** Its OAuth token exchange runs in the browser, and
+> Robinhood's token host (`api.robinhood.com`) sends no CORS headers, so that step always fails
+> with "Failed to fetch". The script does the exchange from Node, which isn't subject to CORS.
+
 Tokens expire; if the agent starts failing with auth errors, mint a fresh one. (Automating the
 refresh is a good v2 task.)
 

@@ -1,4 +1,49 @@
 import 'dotenv/config';
+import { getKv, setKv } from './db.js';
+
+// --- runtime-editable secrets --------------------------------------------
+// These three can be entered+saved from the dashboard and persist in the DB
+// (which lives on the studio-data volume, so they survive restarts/logins).
+// A saved DB value always wins; the matching env var is only a fallback.
+const SECRETS = {
+  anthropicApiKey: { kv: 'secret:anthropic_api_key', env: 'ANTHROPIC_API_KEY' },
+  robinhoodMcpToken: { kv: 'secret:robinhood_mcp_token', env: 'ROBINHOOD_MCP_TOKEN' },
+  robinhoodAccount: { kv: 'secret:robinhood_account', env: 'ROBINHOOD_ACCOUNT' },
+};
+
+function resolveSecret(name) {
+  const spec = SECRETS[name];
+  const fromDb = getKv(spec.kv, '');
+  if (fromDb) return { value: fromDb, source: 'db' };
+  const fromEnv = process.env[spec.env] || '';
+  return { value: fromEnv, source: fromEnv ? 'env' : 'unset' };
+}
+
+/** Current resolved value of a runtime secret (DB override, else env). */
+export function getSecret(name) {
+  return resolveSecret(name).value;
+}
+
+/** Persist (or clear, when value is empty) a runtime secret in the DB. */
+export function setSecret(name, value) {
+  if (!SECRETS[name]) throw new Error(`unknown secret: ${name}`);
+  setKv(SECRETS[name].kv, value == null ? '' : String(value).trim());
+}
+
+function mask(value) {
+  if (!value) return null;
+  return value.length <= 4 ? '••••' : '••••' + value.slice(-4);
+}
+
+/** Masked status of every runtime secret — safe to expose to the dashboard. */
+export function secretsStatus() {
+  const out = {};
+  for (const name of Object.keys(SECRETS)) {
+    const { value, source } = resolveSecret(name);
+    out[name] = { set: !!value, source, preview: mask(value) };
+  }
+  return out;
+}
 
 function bool(v, dflt = false) {
   if (v === undefined || v === null || v === '') return dflt;
@@ -17,7 +62,8 @@ function list(v) {
 
 export const config = {
   anthropic: {
-    apiKey: process.env.ANTHROPIC_API_KEY || '',
+    // resolved at read-time so dashboard-saved values apply without a restart
+    get apiKey() { return getSecret('anthropicApiKey'); },
     models: {
       research: process.env.MODEL_RESEARCH || 'claude-sonnet-4-6',
       proposal: process.env.MODEL_PROPOSAL || 'claude-opus-4-8',
@@ -26,8 +72,8 @@ export const config = {
   },
   robinhood: {
     mcpUrl: process.env.ROBINHOOD_MCP_URL || 'https://agent.robinhood.com/mcp/trading',
-    mcpToken: process.env.ROBINHOOD_MCP_TOKEN || '',
-    account: process.env.ROBINHOOD_ACCOUNT || '',
+    get mcpToken() { return getSecret('robinhoodMcpToken'); },
+    get account() { return getSecret('robinhoodAccount'); },
   },
   universe: list(process.env.WATCH_UNIVERSE),
   includeRobinhoodWatchlists: bool(process.env.INCLUDE_ROBINHOOD_WATCHLISTS, true),
