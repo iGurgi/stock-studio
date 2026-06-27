@@ -32,7 +32,11 @@ async function gather(symbol) {
     ctx.earnings = await getEarnings(symbol).catch(() => null);
   }
   if (searchEnabled()) {
-    ctx.news = formatResults(await searchWeb(`${symbol} stock latest news catalyst earnings`));
+    const base = symbol.replace(/-USD$/i, '');
+    const query = isCrypto(symbol)
+      ? `${base} crypto price news catalyst regulation ETF`
+      : `${symbol} stock news earnings catalyst guidance analyst`;
+    ctx.news = formatResults(await searchWeb(query));
   }
   return ctx;
 }

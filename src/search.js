@@ -18,11 +18,17 @@ async function tavily(query, n) {
       max_results: n,
       search_depth: 'basic',
       topic: 'news',
+      days: config.search.recencyDays, // bias toward fresh news for a trading desk
     }),
   });
   if (!res.ok) throw new Error(`tavily ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const j = await res.json();
-  return (j.results || []).map((r) => ({ title: r.title, url: r.url, snippet: r.content }));
+  return (j.results || []).map((r) => ({
+    title: r.title,
+    url: r.url,
+    snippet: r.content,
+    date: r.published_date || null,
+  }));
 }
 
 async function brave(query, n) {
@@ -71,6 +77,6 @@ export async function searchWeb(query) {
 export function formatResults(results) {
   if (!results?.length) return '(no web results)';
   return results
-    .map((r, i) => `[${i + 1}] ${r.title || ''}\n${r.url || ''}\n${(r.snippet || '').slice(0, 300)}`)
+    .map((r, i) => `[${i + 1}] ${r.title || ''}${r.date ? ` (${r.date})` : ''}\n${(r.snippet || '').slice(0, 300)}`)
     .join('\n\n');
 }

@@ -79,6 +79,7 @@ export const config = {
     get apiKey() { return getSecret('searchApiKey'); },
     baseUrl: process.env.SEARCH_BASE_URL || '', // SearXNG instance URL
     maxResults: num(process.env.SEARCH_MAX_RESULTS, 5),
+    recencyDays: num(process.env.SEARCH_RECENCY_DAYS, 14), // news lookback window
   },
   robinhood: {
     mcpUrl: process.env.ROBINHOOD_MCP_URL || 'https://agent.robinhood.com/mcp/trading',
