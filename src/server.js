@@ -78,6 +78,8 @@ app.post('/api/settings', requireToken, (req, res) => {
     robinhoodAccount: 'robinhoodAccount',
     llmApiKey: 'llmApiKey',
     searchApiKey: 'searchApiKey',
+    coinbaseApiKeyName: 'coinbaseApiKeyName',
+    coinbaseApiSecret: 'coinbaseApiSecret',
   };
   const changed = [];
   for (const [field, name] of Object.entries(map)) {

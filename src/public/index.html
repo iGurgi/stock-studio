@@ -234,6 +234,8 @@ const SECRET_FIELDS = [
   { key:'robinhoodAccount',  label:'Robinhood account',   ph:'account number' },
   { key:'llmApiKey',         label:'LLM API key (opt)',   ph:'blank for Ollama' },
   { key:'searchApiKey',      label:'Search API key (opt)',ph:'Tavily/Brave key' },
+  { key:'coinbaseApiKeyName',label:'Coinbase key name',   ph:'organizations/…/apiKeys/…' },
+  { key:'coinbaseApiSecret', label:'Coinbase private key',ph:'PEM or base64 secret' },
 ];
 
 function renderSettings(s){

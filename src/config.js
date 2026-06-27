@@ -10,6 +10,8 @@ const SECRETS = {
   robinhoodAccount: { kv: 'secret:robinhood_account', env: 'ROBINHOOD_ACCOUNT' },
   llmApiKey: { kv: 'secret:llm_api_key', env: 'LLM_API_KEY' },
   searchApiKey: { kv: 'secret:search_api_key', env: 'SEARCH_API_KEY' },
+  coinbaseApiKeyName: { kv: 'secret:coinbase_api_key_name', env: 'COINBASE_API_KEY_NAME' },
+  coinbaseApiSecret: { kv: 'secret:coinbase_api_secret', env: 'COINBASE_API_SECRET' },
 };
 
 function resolveSecret(name) {
@@ -86,6 +88,13 @@ export const config = {
     get mcpToken() { return getSecret('robinhoodMcpToken'); },
     get account() { return getSecret('robinhoodAccount'); },
   },
+  coinbase: {
+    enabled: bool(process.env.COINBASE_ENABLED, false),
+    get apiKeyName() { return getSecret('coinbaseApiKeyName'); },
+    get apiSecret() { return getSecret('coinbaseApiSecret'); },
+  },
+  // Which venue handles crypto (-USD) orders: 'robinhood' | 'coinbase'
+  cryptoVenue: (process.env.CRYPTO_VENUE || 'robinhood').toLowerCase(),
   universe: list(process.env.WATCH_UNIVERSE),
   includeRobinhoodWatchlists: bool(process.env.INCLUDE_ROBINHOOD_WATCHLISTS, true),
   rails: {
