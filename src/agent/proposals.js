@@ -123,6 +123,6 @@ Propose up to ${remainingToday} trades. Set est_cost_usd ≈ qty × limit_price.
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   proposalPass().then((r) => { console.log(r); process.exit(0); });
 }

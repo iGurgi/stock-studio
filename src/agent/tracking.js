@@ -66,6 +66,6 @@ For each position decide if anything needs attention: stop breached, target reac
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   trackingPass().then((r) => { console.log(r); process.exit(0); });
 }

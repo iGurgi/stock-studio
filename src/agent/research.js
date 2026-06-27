@@ -115,6 +115,6 @@ Return ONLY this JSON:
 }
 
 // allow `node src/agent/research.js` (cross-platform entry check)
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   researchPass().then((r) => { console.log(r); process.exit(0); });
 }
