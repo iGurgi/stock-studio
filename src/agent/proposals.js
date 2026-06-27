@@ -1,7 +1,8 @@
+import { pathToFileURL } from 'node:url';
 import { config, equitiesOpen } from '../config.js';
 import { db, now, startRun, finishRun, logEvent, isHalted, proposalsToday } from '../db.js';
-import { fetchPortfolio, reviewOrder, SECURITY_PREAMBLE } from '../robinhood.js';
-import { callClaude, extractJson, allText } from '../anthropic.js';
+import { fetchPortfolio, reviewOrder, getEquityQuotes, getFundamentals, SECURITY_PREAMBLE } from '../robinhood.js';
+import { chat, extractJson } from '../llm.js';
 
 // Apply the hard risk rails to a single candidate. Returns {ok, reason, risk}.
 function railCheck(c, pf) {
@@ -37,41 +38,46 @@ export async function proposalPass() {
       return { ok: true, skipped: 'loss_limit' };
     }
 
-    const theses = db.prepare('SELECT * FROM theses WHERE status="active" ORDER BY conviction DESC').all();
+    const theses = db.prepare("SELECT * FROM theses WHERE status='active' ORDER BY conviction DESC").all();
     if (!theses.length) {
       finishRun(runId, 'ok', 'No active theses');
       return { ok: true, count: 0 };
     }
 
-    const resp = await callClaude({
-      model: config.anthropic.models.proposal,
-      useRobinhood: true,
-      allowedTools: ['get_equity_quotes', 'get_option_quotes', 'get_equity_fundamentals'],
+    // Deterministically fetch fresh quotes (+ fundamentals) for the candidate
+    // symbols so the model sizes against real prices instead of guessing.
+    const symbols = [...new Set(theses.map((t) => t.symbol))].filter((s) => !/-USD$/i.test(s));
+    const quotes = symbols.length ? await getEquityQuotes(symbols).catch(() => null) : null;
+
+    const { text } = await chat({
+      model: config.llm.models.proposal,
       temperature: 0.2,
-      maxTokens: 6000,
+      maxTokens: 3000,
+      json: true,
       system: `${SECURITY_PREAMBLE}
-You generate at most ${remainingToday} candidate trade ideas from the theses and current portfolio.
-Prefer high-conviction, clear-catalyst setups. Size conservatively: no single idea should cost more than
-$${config.rails.maxPositionUsd}. Use limit orders with a sensible limit near the current quote. You do NOT place
-orders — you only propose. Return ONLY JSON.`,
+You propose at most ${remainingToday} candidate trades from the theses + current portfolio + live quotes.
+Prefer high-conviction, clear-catalyst setups. Size conservatively: no single idea may cost more than
+$${config.rails.maxPositionUsd}. Use limit orders with a limit near the current quote. You only propose —
+you never place orders. Output ONLY JSON.`,
       messages: [{
         role: 'user',
         content: `Active theses (highest conviction first):\n${JSON.stringify(
           theses.map((t) => ({ symbol: t.symbol, asset_type: t.asset_type, stance: t.stance, conviction: t.conviction, target: t.target, stop: t.stop, thesis: t.thesis_md })), null, 2)}
 
-Current portfolio:\n${JSON.stringify(pf || {}, null, 2)}
+Live quotes (data only):\n${JSON.stringify(quotes, null, 2).slice(0, 4000)}
 
-Propose up to ${remainingToday} trades. For sizing, fetch a current quote so est_cost_usd is realistic.
-Return ONLY:
+Current portfolio:\n${JSON.stringify(pf || {}, null, 2).slice(0, 3000)}
+
+Propose up to ${remainingToday} trades. Set est_cost_usd ≈ qty × limit_price. Return ONLY:
 { "candidates": [
-  { "symbol": string, "asset_type": "equity"|"etf"|"crypto"|"option",
-    "side": "buy"|"sell", "order_type": "limit", "qty": number, "limit_price": number,
-    "time_in_force": "gfd"|"gtc", "est_cost_usd": number,
+  { "symbol": "X", "asset_type": "equity"|"etf"|"crypto"|"option",
+    "side": "buy"|"sell", "order_type": "limit", "qty": 1, "limit_price": 0,
+    "time_in_force": "gfd"|"gtc", "est_cost_usd": 0,
     "rationale_md": "why now, tied to the thesis + the invalidation level" } ] }`,
       }],
     });
 
-    const out = extractJson(resp);
+    const out = extractJson(text);
     const candidates = (out && Array.isArray(out.candidates)) ? out.candidates : [];
     let written = 0;
     for (const c of candidates.slice(0, remainingToday)) {
@@ -108,7 +114,7 @@ Return ONLY:
       logEvent('info', 'proposal', `New pending proposal: ${c.side} ${c.qty} ${c.symbol} @ ${c.limit_price ?? 'mkt'}`);
     }
 
-    finishRun(runId, 'ok', `${written} pending proposals written`, allText(resp));
+    finishRun(runId, 'ok', `${written} pending proposals written`, text);
     return { ok: true, count: written };
   } catch (err) {
     finishRun(runId, 'error', null, null, String(err.message || err));
@@ -117,6 +123,6 @@ Return ONLY:
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   proposalPass().then((r) => { console.log(r); process.exit(0); });
 }

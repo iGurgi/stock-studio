@@ -230,9 +230,10 @@ async function refresh(){
 }
 
 const SECRET_FIELDS = [
-  { key:'anthropicApiKey',   label:'Anthropic API key',   ph:'sk-ant-…' },
   { key:'robinhoodMcpToken', label:'Robinhood MCP token', ph:'paste token' },
   { key:'robinhoodAccount',  label:'Robinhood account',   ph:'account number' },
+  { key:'llmApiKey',         label:'LLM API key (opt)',   ph:'blank for Ollama' },
+  { key:'searchApiKey',      label:'Search API key (opt)',ph:'Tavily/Brave key' },
 ];
 
 function renderSettings(s){

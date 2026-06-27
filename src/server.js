@@ -74,9 +74,10 @@ app.get('/api/settings', (req, res) => {
 // the saved value (falling back to the env var, if any).
 app.post('/api/settings', requireToken, (req, res) => {
   const map = {
-    anthropicApiKey: 'anthropicApiKey',
     robinhoodMcpToken: 'robinhoodMcpToken',
     robinhoodAccount: 'robinhoodAccount',
+    llmApiKey: 'llmApiKey',
+    searchApiKey: 'searchApiKey',
   };
   const changed = [];
   for (const [field, name] of Object.entries(map)) {

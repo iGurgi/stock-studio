@@ -6,9 +6,10 @@ import { getKv, setKv } from './db.js';
 // (which lives on the studio-data volume, so they survive restarts/logins).
 // A saved DB value always wins; the matching env var is only a fallback.
 const SECRETS = {
-  anthropicApiKey: { kv: 'secret:anthropic_api_key', env: 'ANTHROPIC_API_KEY' },
   robinhoodMcpToken: { kv: 'secret:robinhood_mcp_token', env: 'ROBINHOOD_MCP_TOKEN' },
   robinhoodAccount: { kv: 'secret:robinhood_account', env: 'ROBINHOOD_ACCOUNT' },
+  llmApiKey: { kv: 'secret:llm_api_key', env: 'LLM_API_KEY' },
+  searchApiKey: { kv: 'secret:search_api_key', env: 'SEARCH_API_KEY' },
 };
 
 function resolveSecret(name) {
@@ -61,14 +62,23 @@ function list(v) {
 }
 
 export const config = {
-  anthropic: {
-    // resolved at read-time so dashboard-saved values apply without a restart
-    get apiKey() { return getSecret('anthropicApiKey'); },
+  // Local (or any OpenAI-compatible) LLM backend — replaces the Anthropic API.
+  llm: {
+    baseUrl: (process.env.LLM_BASE_URL || 'http://ollama:11434/v1').replace(/\/+$/, ''),
+    // Optional bearer for gated gateways; Ollama ignores it.
+    get apiKey() { return getSecret('llmApiKey'); },
     models: {
-      research: process.env.MODEL_RESEARCH || 'claude-sonnet-4-6',
-      proposal: process.env.MODEL_PROPOSAL || 'claude-opus-4-8',
-      placement: process.env.MODEL_PLACEMENT || 'claude-sonnet-4-6',
+      research: process.env.MODEL_RESEARCH || 'qwen2.5:14b',
+      proposal: process.env.MODEL_PROPOSAL || 'qwen2.5:14b',
+      tracking: process.env.MODEL_TRACKING || 'qwen2.5:14b',
     },
+  },
+  // Pluggable web search for the research pass. provider: none|tavily|brave|searxng
+  search: {
+    provider: (process.env.SEARCH_PROVIDER || 'none').toLowerCase(),
+    get apiKey() { return getSecret('searchApiKey'); },
+    baseUrl: process.env.SEARCH_BASE_URL || '', // SearXNG instance URL
+    maxResults: num(process.env.SEARCH_MAX_RESULTS, 5),
   },
   robinhood: {
     mcpUrl: process.env.ROBINHOOD_MCP_URL || 'https://agent.robinhood.com/mcp/trading',
@@ -101,9 +111,15 @@ export const config = {
 
 export function assertConfig() {
   const problems = [];
-  if (!config.anthropic.apiKey) problems.push('ANTHROPIC_API_KEY is missing');
+  if (!config.llm.baseUrl) problems.push('LLM_BASE_URL is missing (no reasoning backend)');
   if (!config.robinhood.mcpToken) problems.push('ROBINHOOD_MCP_TOKEN is missing (agent cannot reach Robinhood)');
   if (!config.robinhood.account) problems.push('ROBINHOOD_ACCOUNT is missing');
+  if (config.search.provider !== 'none') {
+    if ((config.search.provider === 'tavily' || config.search.provider === 'brave') && !config.search.apiKey)
+      problems.push(`SEARCH_PROVIDER=${config.search.provider} but no search API key set`);
+    if (config.search.provider === 'searxng' && !config.search.baseUrl)
+      problems.push('SEARCH_PROVIDER=searxng but SEARCH_BASE_URL is unset');
+  }
   if (!config.server.controlToken || config.server.controlToken === 'change-me-to-a-long-random-string')
     problems.push('CONTROL_TOKEN is unset or default — dashboard write actions will be insecure');
   return problems;

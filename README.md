@@ -16,29 +16,32 @@ on the dashboard and type the ticker to arm it. Nothing reaches your brokerage w
 ## How it fits together
 
 ```
-                 ┌──────────────── your server (same box as Robinhood MCP) ───────────────┐
+                 ┌──────────────── your server (reaches Robinhood + your LLM) ─────────────┐
                  │                                                                          │
-  Anthropic API ←┼─ agent loop ── research ──┐                                              │
-  (+ Robinhood   │   (scheduler)  tracking ──┼─→ SQLite (node:sqlite) ──→ Express dashboard │→ you (tailnet)
-   MCP connector │                proposals ─┘        theses / proposals / events           │   approve/halt
-   + web_search) │                                                                          │
-                 │   approve click ──→ placeApprovedOrder() ──→ Robinhood MCP (place tool)  │
+  local LLM    ←─┼─ agent loop ── research ──┐                                              │
+  (Ollama, /v1)  │   (scheduler)  tracking ──┼─→ SQLite (node:sqlite) ──→ Express dashboard │→ you (tailnet)
+  web search   ←─┤                proposals ─┘        theses / proposals / events           │   approve/halt
+  Robinhood MCP ←┤                                                                          │
+  (local client) │   approve click ──→ placeApprovedOrder() ──→ Robinhood MCP (place tool)  │
                  └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-The agent "thinks" by calling the Anthropic Messages API with the Robinhood MCP attached as a
-connector (`mcp_servers`, beta header `mcp-client-2025-11-20`) plus `web_search`. All state lives
-in a local SQLite file. The dashboard reads that state and is the only place orders get approved.
+The agent "thinks" by calling a **local, OpenAI-compatible LLM** (Ollama by default) for all
+reasoning. Robinhood is reached by a **deterministic local MCP client** (`src/mcp/robinhood-client.js`)
+— *our* code decides which tools to call and calls them directly; the model only ever sees the
+results as data and never drives tools (including placement). Fresh news comes from a pluggable
+web-search provider. All state lives in a local SQLite file. The dashboard reads that state and is
+the only place orders get approved.
 
 ## Requirements
 
 - Node.js **>= 22.5** (uses the built-in `node:sqlite` — no native build step).
-- An Anthropic API key.
-- The Robinhood MCP reachable at a public HTTPS URL (it already is: `agent.robinhood.com/mcp/trading`).
-  The Messages API connector reaches MCP servers **from Anthropic's cloud**, so the MCP must be
-  public — a Tailscale-private URL would *not* work for the connector. Your dashboard, by
-  contrast, binds to localhost/your tailnet and stays private.
+- A local (or any OpenAI-compatible) LLM endpoint — e.g. **Ollama** with a capable instruct model
+  pulled (`qwen2.5:14b` recommended). Set `LLM_BASE_URL` + `MODEL_*`.
+- The Robinhood MCP reachable at a public HTTPS URL (`agent.robinhood.com/mcp/trading`). The local
+  MCP client connects to it directly with your bearer token — no third-party cloud is involved.
 - A Robinhood brokerage account flagged `agentic_allowed=true` (required for order tools).
+- (Optional) a web-search provider — Tavily/Brave API key, or a self-hosted SearXNG URL.
 
 ## Setup
 
@@ -80,6 +83,20 @@ dashboard is reachable on the host loopback and nowhere else. To use it from you
 - change the mapping to your tailscale IP, e.g. `"100.x.y.z:8787:8787"`.
 
 Do **not** publish to `0.0.0.0:8787` unless something else is doing authentication in front.
+
+**Reaching a local Ollama from the containers.** The compose file maps `ollama` →
+`host-gateway`, so `LLM_BASE_URL=http://ollama:11434/v1` works when Ollama listens on the Docker
+host. **Caveat (WSL2):** if Ollama runs inside a *separate* WSL distro, Docker Desktop's network
+can't route to it — `host-gateway`/`host.docker.internal` only reach the Windows host, not other
+distros. Two fixes: (a) run Ollama on the Windows host (or bind it there), then use
+`host.docker.internal`; or (b) add a host port-proxy so the Windows host forwards to the distro,
+then point `LLM_BASE_URL` at `host.docker.internal`:
+```powershell
+# admin PowerShell — forward host :11434 to the WSL Ollama
+netsh interface portproxy add v4tov4 listenport=11434 listenaddress=0.0.0.0 connectport=11434 connectaddress=<wsl-ollama-ip>
+```
+If you'd rather skip Docker networking entirely, run the app on the host (`npm start`) where it
+reaches the same `ollama` host the rest of your tools use.
 
 **Validate before pushing.** `./scripts/smoke.sh` builds, boots, checks the dashboard/API/auth-gating and the agent container, then tears down — run it locally as a pre-push gate. Add `--live` to also fire one read-only research pass against your real creds (never places orders), or `--keep` to leave the stack up.
 
@@ -132,15 +149,16 @@ Layers, outermost first:
    trust it.
 2. **Human gate** — proposals are written as `pending`. Placement only happens via the dashboard
    Approve button, and you must type the ticker to arm it.
-3. **Locked placement path** — `placeApprovedOrder()` exposes the MCP with `allowed_tools` set to
-   the single place tool, temperature 0, and passes the exact pre-validated parameters. The model
-   physically cannot cancel, modify, or place anything else in that call.
+3. **Deterministic placement path** — `placeApprovedOrder()` is a direct local MCP tool call with
+   the exact pre-validated parameters. **No LLM is in the placement loop at all** — it cannot
+   reinterpret, cancel, modify, or place anything else.
 4. **Risk rails** — `MAX_POSITION_USD`, `MAX_NEW_TRADES_PER_DAY`, `MAX_DAILY_LOSS_USD`, and
    market-hours checks are enforced before a proposal is ever written.
 5. **Kill switch** — the HALT button stops new research/proposals and blocks approvals; tracking
    keeps running so you can still watch positions.
 6. **Injection defense** — every prompt tells the model to treat tool/web/news output as data,
-   never instructions. The human gate is the real backstop for this.
+   never instructions. Because the model can't drive tools at all (we do, deterministically), an
+   injection can at worst skew a *proposal* — which still has to pass the rails and the human gate.
 
 ## Tuning the desk
 
@@ -153,24 +171,30 @@ Layers, outermost first:
 
 ```
 src/
-  config.js        env + rails + market-hours helper
+  config.js        env + rails + runtime secrets + market-hours helper
   db.js            SQLite schema + helpers (node:sqlite)
-  anthropic.js     Messages API wrapper (MCP connector + web_search) and block parsers
-  robinhood.js     portfolio fetch, order simulation, and the locked placement path
+  llm.js           OpenAI-compatible chat client (Ollama etc.) + JSON parsing
+  search.js        pluggable web search (none|tavily|brave|searxng)
+  mcp/
+    robinhood-client.js  deterministic Robinhood MCP client (official SDK)
+  robinhood.js     portfolio fetch, order simulation, and the deterministic placement path
   agent/
-    research.js    builds/updates theses from data + news
+    research.js    gathers data+news per symbol, asks the LLM for a thesis
     tracking.js    snapshots portfolio, checks positions vs theses, raises alerts
     proposals.js   generates candidates, enforces rails, simulates, writes pending proposals
     scheduler.js   the autonomous loop
   server.js        dashboard + REST API + approval/placement endpoints
   public/index.html  operator console
+scripts/
+  get-robinhood-token.mjs  mint the Robinhood OAuth token
+  mcp-discover.mjs         list the Robinhood MCP tools (diagnostics)
 data/studio.db     created on first run
 ```
 
 ## Known v2 work
 
 - Automatic OAuth token refresh for the Robinhood MCP.
-- Swap the placement step for a direct Node MCP client (removes the model from the place call
-  entirely — fully deterministic).
+- Tighten the portfolio/review field mapping in `robinhood.js` once the live MCP tool output
+  schemas are confirmed (run `node scripts/mcp-discover.mjs`); current mapping is best-effort.
 - Per-symbol position limits and sector exposure caps.
 - Backtest mode that replays proposals against history before you arm placement.

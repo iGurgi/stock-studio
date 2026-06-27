@@ -14,6 +14,10 @@ services:
       HOST: 0.0.0.0           # bind inside the container; exposure is controlled by the port mapping below
       DB_PATH: /data/studio.db
       RUN_SCHEDULER: "false"  # the agent service owns the loop, so the dashboard doesn't double-run it
+    # Resolve "ollama" to the Docker host (where Ollama listens). If Ollama is on
+    # another box, drop this and point LLM_BASE_URL at its IP instead.
+    extra_hosts:
+      - "ollama:host-gateway"
     ports:
       # Published to host loopback ONLY. To reach it from your tailnet, either
       # change this to "<tailscale-ip>:8787:8787" or front it with `tailscale serve`.
@@ -35,6 +39,8 @@ services:
     env_file: .env
     environment:
       DB_PATH: /data/studio.db
+    extra_hosts:
+      - "ollama:host-gateway"
     volumes:
       - studio-data:/data
     init: true
