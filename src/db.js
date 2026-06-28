@@ -131,8 +131,10 @@ export function setHalted(v) {
 }
 
 // Count proposals created today (ET-ish via UTC date is fine for a soft cap).
+// Auto-pruned proposals (status 'expired' — dedupe / unactionable cleanup) don't
+// count against the daily budget; they never became a real, surfaced trade idea.
 export function proposalsToday() {
   const day = new Date().toISOString().slice(0, 10);
-  const row = db.prepare("SELECT COUNT(*) c FROM proposals WHERE substr(created_at,1,10)=?").get(day);
+  const row = db.prepare("SELECT COUNT(*) c FROM proposals WHERE substr(created_at,1,10)=? AND status != 'expired'").get(day);
   return row.c;
 }
