@@ -50,7 +50,9 @@ async function fromNews() {
   const hint = [...new Set((corpus.match(TICKER) || []).filter((t) => !STOPWORDS.has(t)))].slice(0, 40);
 
   const { text } = await chat({
-    model: config.llm.models.research,
+    // Ticker extraction is a light task — use the fast small model, not the
+    // slow research model, so a discovery run doesn't take minutes.
+    model: config.llm.models.tracking,
     temperature: 0.2,
     maxTokens: 700,
     json: true,
