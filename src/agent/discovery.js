@@ -134,6 +134,14 @@ export async function discoveryPass() {
       const avgVol = numOrNull(f.average_volume_30_days) ?? numOrNull(f.average_volume) ?? numOrNull(f.average_volume_2_weeks);
       statBySym.set(s, { price, dollarVol: (price != null && avgVol != null) ? price * avgVol : null });
     }
+    // Fail closed: if fundamentals are unavailable we can't verify liquidity, so
+    // admit nothing this run rather than letting unvetted names through. Discovery
+    // re-runs on its cadence, so skipping one run is harmless.
+    if (!statBySym.size) {
+      finishRun(runId, 'ok', `${fresh.size} candidates held — liquidity data unavailable`);
+      logEvent('warn', 'discovery', 'Skipped admission: no fundamentals/liquidity data this run');
+      return { ok: true, count: 0 };
+    }
 
     // Admit round-robin across sources so catalyst-driven names (news/earnings)
     // aren't starved by a long movers list filling the whole per-run quota.
@@ -156,15 +164,13 @@ export async function discoveryPass() {
       if (admitted.length >= config.discovery.maxNewPerRun) break;
       // Skip bankruptcy tickers (5-letter symbol ending in Q, e.g. MAXNQ).
       if (/^[A-Z]{4}Q$/.test(sym)) continue;
-      // Liquidity + price gate. Require fundamentals to confirm the name is
-      // real and tradable; only skip the gate if the fundamentals call failed
-      // wholesale (so an outage doesn't freeze discovery).
+      // Liquidity + price gate. Require fundamentals to confirm the name is real,
+      // tradable, and liquid enough (avg daily $-volume floor). Unresolved or
+      // illiquid names are dropped.
       const st = statBySym.get(sym);
-      if (statBySym.size) {
-        if (!st) continue; // didn't resolve — treat as untradable
-        if (st.price != null && (st.price < config.discovery.minPrice || st.price > config.discovery.maxPrice)) continue;
-        if (st.dollarVol != null && st.dollarVol < config.discovery.minDollarVol) continue;
-      }
+      if (!st || st.dollarVol == null) continue;                 // can't verify liquidity
+      if (st.dollarVol < config.discovery.minDollarVol) continue; // too illiquid
+      if (st.price != null && (st.price < config.discovery.minPrice || st.price > config.discovery.maxPrice)) continue;
       const c = fresh.get(sym);
       upsertDiscovered({ symbol: sym, asset_type: 'equity', source: c.source, reason: c.reason });
       admitted.push(`${sym}(${c.source})`);
