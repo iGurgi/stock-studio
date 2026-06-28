@@ -62,9 +62,9 @@ export async function getWatchlistSymbols() {
     const lists = Array.isArray(wls) ? wls : (wls?.watchlists || wls?.results || []);
     const out = new Set();
     for (const wl of lists) {
-      const id = pick(wl, ['id', 'name', 'watchlist_id']);
+      const id = pick(wl, ['id', 'list_id', 'watchlist_id', 'name']);
       if (!id) continue;
-      const items = await callTool('get_watchlist_items', { watchlist: id, id, name: id });
+      const items = await callTool('get_watchlist_items', { list_id: id });
       const arr = Array.isArray(items.data) ? items.data : (items.data?.items || items.data?.results || []);
       for (const it of arr) {
         const s = pick(it, ['symbol', 'ticker']);
@@ -91,12 +91,12 @@ export async function getPopularMoverSymbols({ maxLists = 6, perList = 30 } = {}
     let used = 0;
     for (const wl of lists) {
       if (used >= maxLists) break;
-      const name = String(pick(wl, ['name', 'display_name', 'title'], '') || '');
-      const id = pick(wl, ['id', 'url', 'slug', 'name']);
+      const name = String(pick(wl, ['display_name', 'name', 'title'], '') || '');
+      const id = pick(wl, ['id', 'list_id', 'url', 'slug']);
       if (!id) continue;
       if (name && !moverish.test(name)) continue; // only mover-ish curated lists
       used++;
-      const items = await callTool('get_watchlist_items', { watchlist: id, id, name: id });
+      const items = await callTool('get_watchlist_items', { list_id: id });
       const arr = Array.isArray(items.data) ? items.data : (items.data?.items || items.data?.results || []);
       for (const it of (arr || []).slice(0, perList)) {
         const s = pick(it, ['symbol', 'ticker']);
@@ -110,7 +110,7 @@ export async function getPopularMoverSymbols({ maxLists = 6, perList = 30 } = {}
 // Tickers with earnings inside the next `days` (event-driven candidate source).
 export async function getEarningsCalendarSymbols({ days = 7 } = {}) {
   try {
-    const r = await callTool('get_earnings_calendar', { days_ahead: days, range_days: days, days });
+    const r = await callTool('get_earnings_calendar', { days });
     if (r.isError) return [];
     const arr = Array.isArray(r.data) ? r.data : (r.data?.results || r.data?.earnings || r.data?.calendar || []);
     const out = new Set();
