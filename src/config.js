@@ -105,8 +105,9 @@ export const config = {
     maxNewPerRun: num(process.env.DISCOVERY_MAX_NEW, 8),   // new names admitted per run
     maxTracked: num(process.env.DISCOVERY_MAX_TRACKED, 30), // ceiling on the discovered universe
     maxAgeDays: num(process.env.DISCOVERY_MAX_AGE_DAYS, 14), // prune names not re-seen within
-    minPrice: num(process.env.DISCOVERY_MIN_PRICE, 1),     // liquidity/penny floor
+    minPrice: num(process.env.DISCOVERY_MIN_PRICE, 1),     // penny floor
     maxPrice: num(process.env.DISCOVERY_MAX_PRICE, 2000),  // skip ultra-high-priced names
+    minDollarVol: num(process.env.DISCOVERY_MIN_DOLLAR_VOL, 1_000_000), // avg daily $ volume floor (liquidity)
   },
   rails: {
     maxPositionUsd: num(process.env.MAX_POSITION_USD, 2000),

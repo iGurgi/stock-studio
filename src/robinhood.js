@@ -46,6 +46,14 @@ export async function getFundamentals(symbol) {
   const r = await callTool('get_equity_fundamentals', { symbols: [symbol] });
   return r.data ?? r.text;
 }
+// Batched fundamentals → array of rows (symbol, average_volume, market_cap, …).
+export async function getFundamentalsBatch(symbols) {
+  if (!symbols?.length) return [];
+  const r = await callTool('get_equity_fundamentals', { symbols });
+  if (r.isError) return [];
+  const d = r.data;
+  return Array.isArray(d) ? d : (d?.results || d?.fundamentals || []);
+}
 export async function getEarnings(symbol) {
   const r = await callTool('get_earnings_results', { symbol });
   return r.isError ? null : (r.data ?? r.text);
@@ -68,7 +76,12 @@ export async function getWatchlistSymbols() {
       const arr = Array.isArray(items.data) ? items.data : (items.data?.items || items.data?.results || []);
       for (const it of arr) {
         const s = pick(it, ['symbol', 'ticker']);
-        if (s) out.add(String(s).toUpperCase());
+        if (!s) continue;
+        const sym = String(s).toUpperCase();
+        // Crypto pairs come back as a bare base (e.g. BTC) with object_type
+        // 'currency_pair'; normalize to the -USD form the rest of the app expects.
+        const isCrypto = String(it.object_type || '').toLowerCase().includes('currency') || it.currency_pair_id != null;
+        out.add(isCrypto && !/-USD$/.test(sym) ? `${sym}-USD` : sym);
       }
     }
     return [...out];

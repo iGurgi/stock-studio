@@ -5,7 +5,7 @@ import {
   discoveredSymbols, upsertDiscovered, pruneDiscovered,
 } from '../db.js';
 import {
-  SECURITY_PREAMBLE, getEquityQuotes, getPopularMoverSymbols, getEarningsCalendarSymbols, getWatchlistSymbols,
+  SECURITY_PREAMBLE, getFundamentalsBatch, getPopularMoverSymbols, getEarningsCalendarSymbols, getWatchlistSymbols,
 } from '../robinhood.js';
 import { searchWeb, formatResults, searchEnabled } from '../search.js';
 import { chat, extractJson } from '../llm.js';
@@ -19,7 +19,6 @@ const numOrNull = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
-const quotePrice = (q) => numOrNull(q?.last_trade_price ?? q?.last_price ?? q?.price ?? q?.mark_price ?? q?.ask_price);
 
 // --- per-source candidate gatherers (each returns [{symbol, source, reason}]) ---
 
@@ -122,14 +121,18 @@ export async function discoveryPass() {
       return { ok: true, count: 0 };
     }
 
-    // Liquidity/price sanity via live quotes — skips delisted/penny/ultra-high.
+    // Liquidity/price sanity via fundamentals: avg daily $-volume floor plus a
+    // price band. This is what filters illiquid microcaps / OTC ADRs (e.g. a
+    // name trading ~40 shares/day) that a price floor alone lets through.
     const symbols = [...fresh.keys()];
-    const quotes = await getEquityQuotes(symbols).catch(() => null);
-    const quoteList = Array.isArray(quotes) ? quotes : (quotes?.results || quotes?.quotes || []);
-    const priceBySym = new Map();
-    for (const q of quoteList) {
-      const s = (q?.symbol || q?.ticker || '').toUpperCase();
-      if (s) priceBySym.set(s, quotePrice(q));
+    const fundamentals = await getFundamentalsBatch(symbols).catch(() => []);
+    const statBySym = new Map();
+    for (const f of fundamentals) {
+      const s = String(f?.symbol || '').toUpperCase();
+      if (!s) continue;
+      const price = numOrNull(f.open) ?? numOrNull(f.high) ?? numOrNull(f.low);
+      const avgVol = numOrNull(f.average_volume_30_days) ?? numOrNull(f.average_volume) ?? numOrNull(f.average_volume_2_weeks);
+      statBySym.set(s, { price, dollarVol: (price != null && avgVol != null) ? price * avgVol : null });
     }
 
     // Admit round-robin across sources so catalyst-driven names (news/earnings)
@@ -153,12 +156,14 @@ export async function discoveryPass() {
       if (admitted.length >= config.discovery.maxNewPerRun) break;
       // Skip bankruptcy tickers (5-letter symbol ending in Q, e.g. MAXNQ).
       if (/^[A-Z]{4}Q$/.test(sym)) continue;
-      const px = priceBySym.get(sym);
-      // Require a real, sane quote: drops penny/ultra-high names and illiquid
-      // OTC/ADRs that don't resolve. Only skip the gate if the quotes call
-      // failed wholesale (so a quote outage doesn't freeze discovery).
-      if (priceBySym.size && (px == null || px < config.discovery.minPrice || px > config.discovery.maxPrice)) {
-        continue;
+      // Liquidity + price gate. Require fundamentals to confirm the name is
+      // real and tradable; only skip the gate if the fundamentals call failed
+      // wholesale (so an outage doesn't freeze discovery).
+      const st = statBySym.get(sym);
+      if (statBySym.size) {
+        if (!st) continue; // didn't resolve — treat as untradable
+        if (st.price != null && (st.price < config.discovery.minPrice || st.price > config.discovery.maxPrice)) continue;
+        if (st.dollarVol != null && st.dollarVol < config.discovery.minDollarVol) continue;
       }
       const c = fresh.get(sym);
       upsertDiscovered({ symbol: sym, asset_type: 'equity', source: c.source, reason: c.reason });
