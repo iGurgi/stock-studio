@@ -151,9 +151,12 @@ export async function discoveryPass() {
     const admitted = [];
     for (const sym of order) {
       if (admitted.length >= config.discovery.maxNewPerRun) break;
+      // Skip bankruptcy tickers (5-letter symbol ending in Q, e.g. MAXNQ).
+      if (/^[A-Z]{4}Q$/.test(sym)) continue;
       const px = priceBySym.get(sym);
-      // If quotes came back at all, require a sane price; if quotes failed
-      // entirely, don't block discovery on it.
+      // Require a real, sane quote: drops penny/ultra-high names and illiquid
+      // OTC/ADRs that don't resolve. Only skip the gate if the quotes call
+      // failed wholesale (so a quote outage doesn't freeze discovery).
       if (priceBySym.size && (px == null || px < config.discovery.minPrice || px > config.discovery.maxPrice)) {
         continue;
       }
