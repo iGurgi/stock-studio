@@ -130,8 +130,24 @@ export async function discoveryPass() {
       if (s) priceBySym.set(s, quotePrice(q));
     }
 
-    const admitted = [];
+    // Admit round-robin across sources so catalyst-driven names (news/earnings)
+    // aren't starved by a long movers list filling the whole per-run quota.
+    const queues = new Map();
     for (const sym of symbols) {
+      const src = fresh.get(sym).source;
+      if (!queues.has(src)) queues.set(src, []);
+      queues.get(src).push(sym);
+    }
+    const order = [];
+    for (let drained = false; !drained;) {
+      drained = true;
+      for (const q of queues.values()) {
+        if (q.length) { order.push(q.shift()); drained = false; }
+      }
+    }
+
+    const admitted = [];
+    for (const sym of order) {
       if (admitted.length >= config.discovery.maxNewPerRun) break;
       const px = priceBySym.get(sym);
       // If quotes came back at all, require a sane price; if quotes failed

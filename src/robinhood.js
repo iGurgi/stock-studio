@@ -86,7 +86,9 @@ export async function getPopularMoverSymbols({ maxLists = 6, perList = 30 } = {}
   try {
     const pop = await callToolOrThrow('get_popular_watchlists', {});
     const lists = Array.isArray(pop) ? pop : (pop?.watchlists || pop?.results || pop?.lists || []);
-    const moverish = /(mover|active|gainer|popular|trending|momentum|earning|breakout|52[ -]?week|high)/i;
+    // Only true price-action lists — NOT "100 most popular" (mega-caps/index
+    // funds) or "upcoming earnings" (covered by the dedicated earnings source).
+    const moverish = /(mover|gainer|loser|active|trending|momentum|breakout|volume|52[ -]?week|new high)/i;
     const out = new Set();
     let used = 0;
     for (const wl of lists) {
