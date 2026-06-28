@@ -1,19 +1,24 @@
 import { pathToFileURL } from 'node:url';
 import { config } from '../config.js';
 import { db, now, startRun, finishRun, logEvent } from '../db.js';
-import { fetchPortfolio, SECURITY_PREAMBLE } from '../robinhood.js';
+import { SECURITY_PREAMBLE } from '../robinhood.js';
+import { loadPortfolio } from './portfolio.js';
 import { chat, extractJson } from '../llm.js';
 
 export async function trackingPass() {
   const runId = startRun('tracking');
   try {
-    const { data: pf, raw, errors } = await fetchPortfolio();
-    if (!pf || (errors && errors.length && pf.portfolio.equity_value == null && !pf.positions.length)) {
+    const { pf, stale, as_of, unavailable, raw, errors } = await loadPortfolio();
+    if (unavailable) {
       finishRun(runId, 'error', 'Could not fetch portfolio', raw, (errors || []).join('; ') || 'portfolio_fetch_failed');
       return { ok: false };
     }
-    db.prepare('INSERT INTO snapshots (taken_at, kind, json) VALUES (?,?,?)')
-      .run(now(), 'portfolio', JSON.stringify(pf));
+    // On a failed fetch we keep the last-known holdings for the dashboard/proposals,
+    // but don't reason (P&L alerts, thesis invalidation) off stale data.
+    if (stale) {
+      finishRun(runId, 'ok', `Live fetch unavailable; holding last snapshot from ${as_of}`);
+      return { ok: true, stale: true };
+    }
 
     // day P&L vs the loss rail
     if (typeof pf.day_pnl_usd === 'number' && pf.day_pnl_usd <= -Math.abs(config.rails.maxDailyLossUsd)) {

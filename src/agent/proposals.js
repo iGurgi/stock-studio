@@ -1,7 +1,8 @@
 import { pathToFileURL } from 'node:url';
 import { config, equitiesOpen } from '../config.js';
 import { db, now, startRun, finishRun, logEvent, isHalted, proposalsToday } from '../db.js';
-import { fetchPortfolio, reviewOrder, getEquityQuotes, getFundamentals, SECURITY_PREAMBLE } from '../robinhood.js';
+import { reviewOrder, getEquityQuotes, getFundamentals, SECURITY_PREAMBLE } from '../robinhood.js';
+import { loadPortfolio } from './portfolio.js';
 import { chat, extractJson } from '../llm.js';
 
 // Identity of a trade idea for de-dup purposes: same instrument + direction.
@@ -47,7 +48,8 @@ export async function proposalPass() {
       return { ok: true, skipped: 'daily_cap' };
     }
 
-    const { data: pf } = await fetchPortfolio();
+    const { pf, stale } = await loadPortfolio();
+    if (stale) logEvent('warn', 'proposal', 'Sizing/actionability using last-known holdings (live fetch unavailable)');
     if (pf && typeof pf.day_pnl_usd === 'number' && pf.day_pnl_usd <= -Math.abs(config.rails.maxDailyLossUsd)) {
       finishRun(runId, 'ok', 'Skipped — daily loss limit breached');
       logEvent('alert', 'proposal', 'Proposal pass suppressed: daily loss limit breached');
