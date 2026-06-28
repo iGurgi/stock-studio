@@ -77,6 +77,51 @@ export async function getWatchlistSymbols() {
   }
 }
 
+// ---- discovery sources (read-only) ----------------------------------------
+
+// Symbols from Robinhood's curated "popular" lists, biased toward lists whose
+// names suggest movers/breakouts (movers, active, gainers, trending, earnings).
+// Best-effort across response shapes; returns [] on any failure.
+export async function getPopularMoverSymbols({ maxLists = 6, perList = 30 } = {}) {
+  try {
+    const pop = await callToolOrThrow('get_popular_watchlists', {});
+    const lists = Array.isArray(pop) ? pop : (pop?.watchlists || pop?.results || pop?.lists || []);
+    const moverish = /(mover|active|gainer|popular|trending|momentum|earning|breakout|52[ -]?week|high)/i;
+    const out = new Set();
+    let used = 0;
+    for (const wl of lists) {
+      if (used >= maxLists) break;
+      const name = String(pick(wl, ['name', 'display_name', 'title'], '') || '');
+      const id = pick(wl, ['id', 'url', 'slug', 'name']);
+      if (!id) continue;
+      if (name && !moverish.test(name)) continue; // only mover-ish curated lists
+      used++;
+      const items = await callTool('get_watchlist_items', { watchlist: id, id, name: id });
+      const arr = Array.isArray(items.data) ? items.data : (items.data?.items || items.data?.results || []);
+      for (const it of (arr || []).slice(0, perList)) {
+        const s = pick(it, ['symbol', 'ticker']);
+        if (s) out.add(String(s).toUpperCase());
+      }
+    }
+    return [...out];
+  } catch { return []; }
+}
+
+// Tickers with earnings inside the next `days` (event-driven candidate source).
+export async function getEarningsCalendarSymbols({ days = 7 } = {}) {
+  try {
+    const r = await callTool('get_earnings_calendar', { days_ahead: days, range_days: days, days });
+    if (r.isError) return [];
+    const arr = Array.isArray(r.data) ? r.data : (r.data?.results || r.data?.earnings || r.data?.calendar || []);
+    const out = new Set();
+    for (const e of (arr || [])) {
+      const s = pick(e, ['symbol', 'ticker', 'chain_symbol']);
+      if (s) out.add(String(s).toUpperCase());
+    }
+    return [...out];
+  } catch { return []; }
+}
+
 /**
  * Consolidated portfolio snapshot, assembled in code from several read-only
  * tools. Field mapping is best-effort across candidate key names; raw tool

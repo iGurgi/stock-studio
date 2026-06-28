@@ -7,6 +7,7 @@ import { placeApprovedOrder } from './robinhood.js';
 import { researchPass } from './agent/research.js';
 import { trackingPass } from './agent/tracking.js';
 import { proposalPass } from './agent/proposals.js';
+import { discoveryPass } from './agent/discovery.js';
 import { startScheduler } from './agent/scheduler.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -139,8 +140,8 @@ app.post('/api/halt', requireToken, (req, res) => {
 
 app.post('/api/agent/run', requireToken, async (req, res) => {
   const kind = req.body?.kind;
-  const fns = { research: researchPass, tracking: trackingPass, proposal: proposalPass };
-  if (!fns[kind]) return res.status(400).json({ error: 'kind must be research|tracking|proposal' });
+  const fns = { research: researchPass, tracking: trackingPass, proposal: proposalPass, discovery: discoveryPass };
+  if (!fns[kind]) return res.status(400).json({ error: 'kind must be research|tracking|proposal|discovery' });
   res.json({ ok: true, started: kind }); // return immediately; pass runs in background
   fns[kind]().catch((e) => logEvent('error', 'manual', `${kind} failed: ${e.message}`));
 });

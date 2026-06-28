@@ -97,6 +97,17 @@ export const config = {
   cryptoVenue: (process.env.CRYPTO_VENUE || 'robinhood').toLowerCase(),
   universe: list(process.env.WATCH_UNIVERSE),
   includeRobinhoodWatchlists: bool(process.env.INCLUDE_ROBINHOOD_WATCHLISTS, true),
+  // Breakout discovery: pull fresh candidate symbols from movers/news/earnings
+  // into the research universe so the desk isn't blind to names off the watchlist.
+  discovery: {
+    enabled: bool(process.env.DISCOVERY_ENABLED, true),
+    sources: list(process.env.DISCOVERY_SOURCES || 'movers,news,earnings').map((s) => s.toLowerCase()),
+    maxNewPerRun: num(process.env.DISCOVERY_MAX_NEW, 8),   // new names admitted per run
+    maxTracked: num(process.env.DISCOVERY_MAX_TRACKED, 30), // ceiling on the discovered universe
+    maxAgeDays: num(process.env.DISCOVERY_MAX_AGE_DAYS, 14), // prune names not re-seen within
+    minPrice: num(process.env.DISCOVERY_MIN_PRICE, 1),     // liquidity/penny floor
+    maxPrice: num(process.env.DISCOVERY_MAX_PRICE, 2000),  // skip ultra-high-priced names
+  },
   rails: {
     maxPositionUsd: num(process.env.MAX_POSITION_USD, 2000),
     maxNewTradesPerDay: num(process.env.MAX_NEW_TRADES_PER_DAY, 5),
@@ -110,6 +121,7 @@ export const config = {
     researchMin: num(process.env.RESEARCH_EVERY_MIN, 60),
     trackingMin: num(process.env.TRACKING_EVERY_MIN, 15),
     proposalMin: num(process.env.PROPOSAL_EVERY_MIN, 30),
+    discoveryMin: num(process.env.DISCOVERY_EVERY_MIN, 120),
   },
   server: {
     port: num(process.env.PORT, 8787),

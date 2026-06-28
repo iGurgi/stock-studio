@@ -92,6 +92,16 @@ CREATE TABLE IF NOT EXISTS kv (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS discovered (
+  symbol TEXT PRIMARY KEY,
+  asset_type TEXT NOT NULL DEFAULT 'equity',
+  source TEXT,                                 -- movers | news | earnings (origin)
+  reason TEXT,                                 -- one-line why it surfaced
+  first_seen TEXT NOT NULL,
+  last_seen TEXT NOT NULL,
+  hits INTEGER NOT NULL DEFAULT 1              -- times re-surfaced across runs
+);
 `);
 
 // ---- small helpers --------------------------------------------------------
@@ -128,6 +138,37 @@ export function isHalted() {
 export function setHalted(v) {
   setKv('halted', v ? 'true' : 'false');
   logEvent('warn', 'kill_switch', v ? 'Desk halted by operator' : 'Desk resumed by operator');
+}
+
+// ---- discovered symbols (breakout discovery) ------------------------------
+
+// Symbols the discovery pass has surfaced and is now actively researching.
+export function discoveredSymbols() {
+  return db.prepare('SELECT symbol FROM discovered ORDER BY last_seen DESC').all().map((r) => r.symbol);
+}
+
+// Record/refresh a discovered candidate. Re-surfacing bumps hits + last_seen.
+export function upsertDiscovered(d) {
+  const ts = now();
+  db.prepare(`INSERT INTO discovered (symbol, asset_type, source, reason, first_seen, last_seen, hits)
+    VALUES (?,?,?,?,?,?,1)
+    ON CONFLICT(symbol) DO UPDATE SET
+      last_seen=excluded.last_seen,
+      hits=discovered.hits+1,
+      source=excluded.source,
+      reason=excluded.reason`)
+    .run(String(d.symbol).toUpperCase(), d.asset_type || 'equity', d.source || null, d.reason || null, ts, ts);
+}
+
+// Keep the discovered universe bounded: prune anything not re-seen within
+// `maxAgeDays`, then trim to the `keep` most-recently-seen. Returns # pruned.
+export function pruneDiscovered({ keep = 30, maxAgeDays = 14 } = {}) {
+  const cutoff = new Date(Date.now() - maxAgeDays * 86400_000).toISOString();
+  const stale = db.prepare('DELETE FROM discovered WHERE last_seen < ?').run(cutoff).changes;
+  const overflow = db.prepare(`DELETE FROM discovered WHERE symbol NOT IN (
+      SELECT symbol FROM discovered ORDER BY last_seen DESC LIMIT ?
+    )`).run(keep).changes;
+  return stale + overflow;
 }
 
 // Count proposals created today (ET-ish via UTC date is fine for a soft cap).

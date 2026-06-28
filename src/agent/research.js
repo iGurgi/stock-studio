@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { config } from '../config.js';
-import { db, now, startRun, finishRun, logEvent } from '../db.js';
+import { db, now, startRun, finishRun, logEvent, discoveredSymbols } from '../db.js';
 import { chat, extractJson } from '../llm.js';
 import {
   SECURITY_PREAMBLE, getEquityQuotes, getFundamentals, getEarnings, getWatchlistSymbols,
@@ -49,6 +49,9 @@ export async function researchPass() {
       const wl = await getWatchlistSymbols();
       universe = [...new Set([...universe, ...wl])];
     }
+    // Fold in breakout-discovery candidates so research isn't limited to the
+    // static watchlist (see agent/discovery.js).
+    universe = [...new Set([...universe, ...discoveredSymbols()])];
     if (!universe.length) {
       finishRun(runId, 'ok', 'Empty universe — nothing to research');
       return { ok: true, count: 0 };
