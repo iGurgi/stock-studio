@@ -9,6 +9,17 @@ import { chat, extractJson } from '../llm.js';
 // acceptable for a soft "don't re-surface the same idea" guard.
 const propKey = (c) => `${c.asset_type || 'equity'}:${c.side}:${c.symbol}`.toLowerCase();
 
+// Shares/units currently held for a candidate, from the live portfolio. ETFs are
+// held as plain equity positions, so equity/etf collapse to the equity class.
+function heldQty(pf, c) {
+  const positions = pf?.positions || [];
+  const equityish = c.asset_type === 'equity' || c.asset_type === 'etf';
+  const match = positions.find((p) =>
+    p.symbol === c.symbol &&
+    (equityish ? p.asset_type === 'equity' : p.asset_type === c.asset_type));
+  return match ? (Number(match.qty) || 0) : 0;
+}
+
 // Apply the hard risk rails to a single candidate. Returns {ok, reason, risk}.
 function railCheck(c, pf) {
   const risk = { maxPositionUsd: config.rails.maxPositionUsd };
@@ -63,7 +74,9 @@ export async function proposalPass() {
 You propose at most ${remainingToday} candidate trades from the theses + current portfolio + live quotes.
 Prefer high-conviction, clear-catalyst setups. Size conservatively: no single idea may cost more than
 $${config.rails.maxPositionUsd}. Use limit orders with a limit near the current quote. You only propose —
-you never place orders. Output ONLY JSON.`,
+you never place orders. Only propose a SELL for a symbol you can see in the current portfolio positions
+(no shorting) and never sell more than the held quantity; express any other bearish view as a thesis, not a
+trade. Output ONLY JSON.`,
       messages: [{
         role: 'user',
         content: `Active theses (highest conviction first):\n${JSON.stringify(
@@ -106,6 +119,21 @@ Propose up to ${remainingToday} trades. Set est_cost_usd ≈ qty × limit_price.
         continue;
       }
       seen.add(key);
+
+      // Actionability: you can't sell what you don't hold (no shorting here).
+      // An option "sell" can be an opening trade, so only gate closing sells of
+      // equity/etf/crypto. The bearish view still lives on as a thesis.
+      if (c.side === 'sell' && c.asset_type !== 'option') {
+        const held = heldQty(pf, c);
+        if (held <= 0) {
+          logEvent('info', 'proposal', `Skipped unactionable sell ${c.symbol}: no position held`);
+          continue;
+        }
+        if (Number.isFinite(Number(c.qty)) && Number(c.qty) > held) {
+          logEvent('info', 'proposal', `Clamped ${c.symbol} sell qty ${c.qty} → ${held} (held)`);
+          c.qty = held;
+        }
+      }
 
       const rc = railCheck(c, pf);
       if (!rc.ok) {
