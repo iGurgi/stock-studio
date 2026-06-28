@@ -4,6 +4,11 @@ import { db, now, startRun, finishRun, logEvent, isHalted, proposalsToday } from
 import { fetchPortfolio, reviewOrder, getEquityQuotes, getFundamentals, SECURITY_PREAMBLE } from '../robinhood.js';
 import { chat, extractJson } from '../llm.js';
 
+// Identity of a trade idea for de-dup purposes: same instrument + direction.
+// Strike/expiry aren't stored as columns, so options collapse on symbol+side too —
+// acceptable for a soft "don't re-surface the same idea" guard.
+const propKey = (c) => `${c.asset_type || 'equity'}:${c.side}:${c.symbol}`.toLowerCase();
+
 // Apply the hard risk rails to a single candidate. Returns {ok, reason, risk}.
 function railCheck(c, pf) {
   const risk = { maxPositionUsd: config.rails.maxPositionUsd };
@@ -79,11 +84,28 @@ Propose up to ${remainingToday} trades. Set est_cost_usd ≈ qty × limit_price.
 
     const out = extractJson(text);
     const candidates = (out && Array.isArray(out.candidates)) ? out.candidates : [];
+
+    // De-dup against ideas already sitting pending (so we don't re-surface the
+    // same trade every cycle) and against repeats within this same batch.
+    const seen = new Set(
+      db.prepare("SELECT symbol, asset_type, side FROM proposals WHERE status='pending'")
+        .all()
+        .map(propKey),
+    );
+
     let written = 0;
-    for (const c of candidates.slice(0, remainingToday)) {
+    for (const c of candidates) {
+      if (written >= remainingToday) break;
       if (!c.symbol || !c.side || !c.qty) continue;
       c.symbol = String(c.symbol).toUpperCase();
       c.asset_type = c.asset_type || 'equity';
+
+      const key = propKey(c);
+      if (seen.has(key)) {
+        logEvent('info', 'proposal', `Skipped duplicate candidate ${c.side} ${c.symbol} (already pending)`);
+        continue;
+      }
+      seen.add(key);
 
       const rc = railCheck(c, pf);
       if (!rc.ok) {
