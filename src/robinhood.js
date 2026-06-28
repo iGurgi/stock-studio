@@ -47,12 +47,20 @@ export async function getFundamentals(symbol) {
   return r.data ?? r.text;
 }
 // Batched fundamentals → array of rows (symbol, average_volume, market_cap, …).
-export async function getFundamentalsBatch(symbols) {
+// Chunked because get_equity_fundamentals caps the symbols per call (a large
+// set returns an error); per-chunk failures are skipped, not fatal.
+export async function getFundamentalsBatch(symbols, chunkSize = 10) {
   if (!symbols?.length) return [];
-  const r = await callTool('get_equity_fundamentals', { symbols });
-  if (r.isError) return [];
-  const d = r.data;
-  return Array.isArray(d) ? d : (d?.results || d?.fundamentals || []);
+  const out = [];
+  for (let i = 0; i < symbols.length; i += chunkSize) {
+    const chunk = symbols.slice(i, i + chunkSize);
+    const r = await callTool('get_equity_fundamentals', { symbols: chunk });
+    if (r.isError) continue;
+    const d = r.data;
+    const rows = Array.isArray(d) ? d : (d?.results || d?.fundamentals || []);
+    out.push(...rows);
+  }
+  return out;
 }
 export async function getEarnings(symbol) {
   const r = await callTool('get_earnings_results', { symbol });
