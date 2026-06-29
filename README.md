@@ -286,8 +286,9 @@ data/studio.db     created on first run
 
 ## Known v2 work
 
-- Tighten the portfolio/review field mapping in `robinhood.js` once the live MCP tool output
-  schemas are confirmed (run `node scripts/mcp-discover.mjs`); current mapping is best-effort.
+- Confirm the equity/option **positions** field mapping against a funded account. The portfolio,
+  quote, and review shapes were confirmed and tightened (2026-06-29); positions remain best-effort
+  because the verification account held none.
 - Per-symbol position limits and sector exposure caps.
 - Backtest mode that replays proposals against history before you arm placement.
 - Surface fill state for placed orders (currently a placed order stays `placed` until you cancel;

@@ -18,6 +18,21 @@ export function lastPortfolioSnapshot() {
   try { return { pf: JSON.parse(row.json), taken_at: row.taken_at }; } catch { return null; }
 }
 
+// get_portfolio exposes no day-P&L, so derive it: today's account value minus
+// the day's FIRST snapshot value. Null until a baseline exists (first run of the
+// day), so it shows "—" rather than a bogus 0. Soft metric — the first snapshot
+// is near the desk's first pass, not necessarily the exact market open.
+function dayPnlFromBaseline(currentValue) {
+  if (currentValue == null) return null;
+  const day = new Date().toISOString().slice(0, 10);
+  const row = db.prepare("SELECT json FROM snapshots WHERE kind='portfolio' AND substr(taken_at,1,10)=? ORDER BY id ASC LIMIT 1").get(day);
+  if (!row) return null;
+  try {
+    const base = JSON.parse(row.json)?.portfolio?.account_value;
+    return base == null ? null : Number((currentValue - base).toFixed(2));
+  } catch { return null; }
+}
+
 // Fetch the live portfolio. On a usable fetch, persist a snapshot and return it
 // (stale:false). On a failed/empty fetch, fall back to the most recent snapshot
 // so callers keep seeing the last-known holdings (stale:true, as_of set). If the
@@ -25,6 +40,8 @@ export function lastPortfolioSnapshot() {
 export async function loadPortfolio({ persist = true } = {}) {
   const { data: pf, raw, errors } = await fetchPortfolio();
   if (isUsable(pf, errors)) {
+    // Derive day P&L against the day's first snapshot before persisting this one.
+    if (pf?.day_pnl_usd == null) pf.day_pnl_usd = dayPnlFromBaseline(pf?.portfolio?.account_value);
     if (persist) {
       db.prepare('INSERT INTO snapshots (taken_at, kind, json) VALUES (?,?,?)').run(now(), 'portfolio', JSON.stringify(pf));
     }
