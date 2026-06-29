@@ -14,7 +14,7 @@
     "research": "node src/agent/research.js",
     "tracking": "node src/agent/tracking.js",
     "proposals": "node src/agent/proposals.js",
-    "check": "node --check src/server.js && node --check src/agent/scheduler.js"
+    "check": "node scripts/check.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
