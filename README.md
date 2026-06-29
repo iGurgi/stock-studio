@@ -269,7 +269,8 @@ src/
   agent/
     discovery.js   pulls movers/news/earnings candidates into the research universe (liquidity-gated)
     research.js    gathers data+news per symbol (concurrently), asks the LLM for a thesis
-    tracking.js    snapshots portfolio, checks positions vs theses, raises alerts
+    tracking.js    snapshots portfolio, reconciles placed orders, checks positions vs theses
+    orders.js      reconciles placed orders against broker state (fills / out-of-band cancels)
     proposals.js   generates candidates, dedupes, enforces rails + actionability, simulates, writes pending
     portfolio.js   fetch-with-persist: snapshots holdings, falls back to last-known on a failed read
     scheduler.js   the autonomous loop
@@ -291,5 +292,6 @@ data/studio.db     created on first run
   because the verification account held none.
 - Per-symbol position limits and sector exposure caps.
 - Backtest mode that replays proposals against history before you arm placement.
-- Surface fill state for placed orders (currently a placed order stays `placed` until you cancel;
-  fills aren't reflected back into the Open orders panel yet).
+- Show partial-fill **progress** in the Open orders panel. Fills and out-of-band cancels are now
+  reconciled into proposal status each tracking cycle (`agent/orders.js`), but a partially-filled
+  order stays `placed` without yet displaying its filled quantity.

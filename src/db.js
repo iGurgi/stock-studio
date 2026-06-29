@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS proposals (
   rationale_md TEXT NOT NULL,
   review_json TEXT,                            -- output of the review/simulate call
   risk_json TEXT,                             -- caps check result
-  status TEXT NOT NULL DEFAULT 'pending',      -- pending | approved | rejected | placed | failed | expired
+  status TEXT NOT NULL DEFAULT 'pending',      -- pending | approved | rejected | placed | filled | canceled | failed | expired
   decided_at TEXT,
   decided_by TEXT,
   placed_order_id TEXT,
