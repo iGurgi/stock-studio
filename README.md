@@ -15,6 +15,10 @@ real order requires you to click Approve on the dashboard and type the ticker to
 you can cancel a resting order from the same console. Nothing reaches your brokerage without
 that approval click.
 
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Stock Studio operator dashboard" width="900">
+</p>
+
 > Not investment advice. This is tooling that operates *your* account under *your* sign-off.
 > You are responsible for every order placed. Start with `PLACEMENT_ENABLED=false`.
 
@@ -49,6 +53,20 @@ turns high-conviction theses into concrete, rail-checked, deduplicated trade tic
 reads are persisted as snapshots so a transient brokerage hiccup falls back to last-known holdings
 rather than blanking out.
 
+## Screenshots
+
+The dashboard is the operator console — research output, the human approval gate, open orders, and
+desk activity in one view. The shots below come from the **demo seed** (invented data, no real
+account), so you can reproduce them in about a minute — see
+[Try it with demo data](#try-it-with-demo-data) and
+[docs/screenshots](docs/screenshots/SCREENSHOTS.md).
+
+
+<p align="center"><img src="docs/screenshots/dashboard.png"      alt="Dashboard overview"                  width="900"></p>
+<p align="center"><img src="docs/screenshots/approval-gate.png"  alt="Approval gate: type the ticker to arm" width="900"></p>
+<p align="center"><img src="docs/screenshots/open-orders.png"    alt="Open orders with cancel"             width="900"></p>
+
+
 ## Requirements
 
 - Node.js **>= 22.5** (uses the built-in `node:sqlite` — no native build step).
@@ -78,6 +96,20 @@ approve/halt controls.
 
 To run the loop and the dashboard as separate processes instead, start the server with
 `RUN_SCHEDULER=false npm start` and run `npm run agent` separately.
+
+### Try it with demo data
+
+Want to see the dashboard without wiring up a brokerage? Seed a throwaway DB with realistic
+**fake** data and point the server at it:
+
+```bash
+node scripts/seed-demo.mjs                                              # writes ./data/demo.db
+DB_PATH=data/demo.db PLACEMENT_ENABLED=false CONTROL_TOKEN=demo npm start
+```
+
+Open `http://127.0.0.1:8787` and unlock with the token `demo`. Nothing connects to a real
+account, and the scheduler has nothing to do — it's purely for exploring the UI (and capturing
+the screenshots above). The seed never touches your real `studio.db`.
 
 ## Docker
 
@@ -243,6 +275,8 @@ scripts/
   get-robinhood-token.mjs  mint the Robinhood OAuth token
   mcp-discover.mjs         list the Robinhood MCP tools (diagnostics)
   dedupe-proposals.js      one-off: collapse duplicate pending proposals
+  seed-demo.mjs            populate a throwaway DB with fake data (demos/screenshots)
+  check.mjs                syntax-check all source files (used by `npm run check` + CI)
 data/studio.db     created on first run
 ```
 
