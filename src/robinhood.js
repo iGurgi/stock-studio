@@ -33,10 +33,27 @@ const numOrNull = (v) => {
 
 // ---- market data helpers (read-only) --------------------------------------
 
+// Confirmed shape (2026-06-29): get_equity_quotes returns
+//   { results: [ { quote: { symbol, last_trade_price, bid_price, ask_price,
+//                           previous_close, state, ... }, close: { price, ... } } ] }
+// Prices are strings. Flatten to one clean numeric row per symbol so the model
+// (and any caller) gets a usable price instead of a two-level nested blob.
 export async function getEquityQuotes(symbols) {
   if (!symbols?.length) return [];
   const r = await callTool('get_equity_quotes', { symbols });
-  return r.data ?? r.text;
+  const rows = Array.isArray(r.data) ? r.data : (r.data?.results || []);
+  return rows.map((row) => {
+    const q = row.quote || row;
+    const close = row.close || {};
+    return {
+      symbol: q.symbol || close.symbol,
+      last_price: numOrNull(q.last_trade_price ?? q.last_non_reg_trade_price),
+      bid_price: numOrNull(q.bid_price),
+      ask_price: numOrNull(q.ask_price),
+      previous_close: numOrNull(q.previous_close ?? q.adjusted_previous_close ?? close.price),
+      state: q.state ?? null,
+    };
+  }).filter((x) => x.symbol);
 }
 export async function getOptionQuotes(args) {
   const r = await callTool('get_option_quotes', args);
@@ -193,19 +210,23 @@ export async function fetchPortfolio() {
     })),
   ].filter((p) => p.symbol);
 
+  // Confirmed shape (2026-06-29): get_portfolio returns numeric *strings* for
+  // total_value, equity_value, crypto_value, cash, and a nested buying_power
+  // object { buying_power, unleveraged_buying_power, display_currency }. There is
+  // NO day-P&L field — day_pnl_usd is derived downstream from the day's first
+  // snapshot (see agent/portfolio.js), so it's left null here.
   const pf = bundle.portfolio || {};
-  // buying_power is a nested object { buying_power, unleveraged_buying_power, ... }
   const bp = pf.buying_power;
   const buyingPower = (bp && typeof bp === 'object') ? numOrNull(bp.buying_power) : numOrNull(bp);
   const data = {
     portfolio: {
-      account_value: numOrNull(pick(pf, ['total_value', 'equity_value'])),
-      equity_value: numOrNull(pick(pf, ['equity_value', 'equity', 'market_value'])),
+      account_value: numOrNull(pf.total_value),
+      equity_value: numOrNull(pf.equity_value),
       buying_power: buyingPower ?? numOrNull(pf.cash),
       cash: numOrNull(pf.cash),
-      crypto_value: numOrNull(pick(pf, ['crypto_value', 'crypto_equity'])),
+      crypto_value: numOrNull(pf.crypto_value),
     },
-    day_pnl_usd: numOrNull(pick(pf, ['day_pnl', 'day_pnl_usd', 'equity_change', 'todays_return'])),
+    day_pnl_usd: null, // not exposed by get_portfolio; computed in portfolio.js
     positions,
     realized_pnl_30d_usd: numOrNull(pick(bundle.realized_pnl, ['realized_pnl_30d', 'total_realized_pnl', 'last_30_days', 'total'])),
   };
@@ -231,25 +252,31 @@ function orderArgs(p, extra = {}) {
   return args;
 }
 
+// Confirmed shape (2026-06-29): review_equity_order echoes the order plus
+//   { order_checks: { alertType, ...details }, quote_data: { last_trade_price,
+//     bid_price, ask_price, ... }, market_data_disclosure: "Bid … Ask … Last …" }.
+// There is NO estimated_cost/estimated_price field, so we derive them: a limit
+// order's realistic fill is its limit price; otherwise the live last trade.
 export async function reviewOrder(p) {
   const reviewTool = p.asset_type === 'option' ? 'review_option_order' : 'review_equity_order';
   const r = await callTool(reviewTool, orderArgs(p));
   const d = r.data || {};
   const q = d.quote_data || {};
-  const estPrice = numOrNull(pick(d, ['estimated_price', 'price', 'estimated_fill_price']))
-    ?? numOrNull(pick(q, ['last_trade_price', 'last_non_reg_trade_price', 'ask_price']));
-  const estCost = numOrNull(pick(d, ['estimated_cost_usd', 'estimated_cost', 'estimated_total', 'total_cost']))
-    ?? (estPrice != null && p.qty != null ? estPrice * Number(p.qty) : null);
-  // order_checks carries broker alerts (e.g. unmarketable limit); surface them.
+  const mark = numOrNull(pick(q, ['last_trade_price', 'last_non_reg_trade_price', 'ask_price', 'bid_price', 'previous_close']));
+  const limit = numOrNull(p.limit_price);
+  const estPrice = ((p.order_type || 'limit') === 'limit' && limit != null) ? limit : mark;
+  const estCost = (estPrice != null && p.qty != null) ? estPrice * Number(p.qty) : null;
+  // order_checks carries broker alerts (suitability, unmarketable limit, etc.).
   const checks = d.order_checks || {};
-  const warnings = pick(d, ['warnings', 'alerts'], null) || (checks.alertType ? [checks.alertType] : []);
+  const warnings = checks.alertType ? [checks.alertType] : [];
   const data = {
-    ok: !r.isError && pick(d, ['ok', 'valid', 'accepted'], true) !== false,
+    ok: !r.isError,
     estimated_cost_usd: estCost,
     estimated_price: estPrice,
+    mark_price: mark,
     warnings,
-    rejected_reason: r.isError ? r.text.slice(0, 200) : pick(d, ['rejected_reason', 'reject_reason', 'error'], null),
-    raw_summary: r.text.slice(0, 500),
+    rejected_reason: r.isError ? r.text.slice(0, 200) : (checks.rejectReason || null),
+    raw_summary: (d.market_data_disclosure || r.text || '').slice(0, 500),
   };
   return { data, raw: r.text, isError: r.isError };
 }
