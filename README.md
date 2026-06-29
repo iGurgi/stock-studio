@@ -190,8 +190,11 @@ panel (or `ROBINHOOD_MCP_TOKEN`). Port busy? `OAUTH_CALLBACK_PORT=9090 node scri
 > Robinhood's token host (`api.robinhood.com`) sends no CORS headers, so that step always fails
 > with "Failed to fetch". The script does the exchange from Node, which isn't subject to CORS.
 
-Tokens expire; if the agent starts failing with auth errors, mint a fresh one. (Automating the
-refresh is a good v2 task.)
+The mint script saves the access token **plus the refresh material** (refresh token, the
+registered `client_id`, and the token endpoint) into the on-box DB, so the desk **renews the
+access token automatically when it expires** — no re-mint needed for routine expiries. Re-run the
+script only if the refresh token itself is revoked (you'll see an `alert`-level auth event telling
+you to). See `src/mcp/robinhood-auth.js`.
 
 ## The safety model
 
@@ -261,6 +264,7 @@ src/
   coinbase.js      optional Coinbase Advanced Trade client (alt crypto venue; CRYPTO_VENUE)
   mcp/
     robinhood-client.js  deterministic Robinhood MCP client (official SDK)
+    robinhood-auth.js    OAuth access-token auto-refresh (refresh_token grant)
   robinhood.js     market data, discovery sources, order simulation, placement + cancel paths
   agent/
     discovery.js   pulls movers/news/earnings candidates into the research universe (liquidity-gated)
@@ -282,7 +286,6 @@ data/studio.db     created on first run
 
 ## Known v2 work
 
-- Automatic OAuth token refresh for the Robinhood MCP.
 - Tighten the portfolio/review field mapping in `robinhood.js` once the live MCP tool output
   schemas are confirmed (run `node scripts/mcp-discover.mjs`); current mapping is best-effort.
 - Per-symbol position limits and sector exposure caps.

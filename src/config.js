@@ -7,6 +7,11 @@ import { getKv, setKv } from './db.js';
 // A saved DB value always wins; the matching env var is only a fallback.
 const SECRETS = {
   robinhoodMcpToken: { kv: 'secret:robinhood_mcp_token', env: 'ROBINHOOD_MCP_TOKEN' },
+  // OAuth refresh material, saved by scripts/get-robinhood-token.mjs so the
+  // access token can be renewed automatically when it expires (see mcp/robinhood-auth.js).
+  robinhoodRefreshToken: { kv: 'secret:robinhood_refresh_token', env: 'ROBINHOOD_REFRESH_TOKEN' },
+  robinhoodOauthClientId: { kv: 'secret:robinhood_oauth_client_id', env: 'ROBINHOOD_OAUTH_CLIENT_ID' },
+  robinhoodTokenEndpoint: { kv: 'secret:robinhood_token_endpoint', env: 'ROBINHOOD_TOKEN_ENDPOINT' },
   robinhoodAccount: { kv: 'secret:robinhood_account', env: 'ROBINHOOD_ACCOUNT' },
   llmApiKey: { kv: 'secret:llm_api_key', env: 'LLM_API_KEY' },
   searchApiKey: { kv: 'secret:search_api_key', env: 'SEARCH_API_KEY' },

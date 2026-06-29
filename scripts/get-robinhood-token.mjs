@@ -15,6 +15,7 @@
 import { createServer } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { URL } from 'node:url';
+import { setSecret } from '../src/config.js';
 
 const MCP_URL = process.env.ROBINHOOD_MCP_URL || 'https://agent.robinhood.com/mcp/trading';
 const CALLBACK_PORT = Number(process.env.OAUTH_CALLBACK_PORT || 8989);
@@ -133,10 +134,32 @@ async function exchange(as, clientId, code, verifier) {
   console.log(`[4/4] exchanging code for tokens …`);
   const tok = await exchange(as, clientId, code, verifier);
 
+  // Persist everything the app needs to auto-refresh (access + refresh tokens,
+  // the client_id the refresh token is bound to, and the token endpoint). Saved
+  // straight into the on-box DB so no manual paste is required. Best-effort: if
+  // the DB isn't reachable, we still print the tokens for a manual paste.
+  let saved = false;
+  if (tok.access_token) {
+    try {
+      setSecret('robinhoodMcpToken', tok.access_token);
+      if (tok.refresh_token) setSecret('robinhoodRefreshToken', tok.refresh_token);
+      setSecret('robinhoodOauthClientId', clientId);
+      setSecret('robinhoodTokenEndpoint', as.token_endpoint);
+      saved = true;
+    } catch (e) {
+      console.warn(`\n(could not save to the DB: ${e.message}; paste the token manually)`);
+    }
+  }
+
   console.log(`\n──────────────────────────────────────────────────────────────`);
-  console.log(`ACCESS TOKEN (paste into the dashboard → Credentials → Robinhood MCP token):\n`);
+  if (saved) {
+    console.log(`Saved to the desk: access token + refresh material. Auto-refresh is now armed —`);
+    console.log(`the desk will renew this token on expiry without a re-mint.\n`);
+  } else {
+    console.log(`ACCESS TOKEN (paste into the dashboard → Credentials → Robinhood MCP token):`);
+  }
   console.log(tok.access_token || '(no access_token in response!)');
-  if (tok.refresh_token) console.log(`\nrefresh_token: ${tok.refresh_token}`);
+  if (!tok.refresh_token) console.log(`\n(no refresh_token returned — auto-refresh won't be available)`);
   if (tok.expires_in) console.log(`expires_in: ${tok.expires_in}s`);
   console.log(`──────────────────────────────────────────────────────────────\n`);
   process.exit(0);
