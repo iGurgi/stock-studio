@@ -23,21 +23,25 @@ function upsertThesis(t) {
 
 const isCrypto = (s) => /-USD$/i.test(s);
 
-// Gather all market data for one symbol deterministically (no LLM).
+// Gather all market data for one symbol deterministically (no LLM). The data
+// sources are independent, so fetch them concurrently — the per-symbol gather
+// is network-bound (Robinhood MCP + web search) and dominates research runtime.
 async function gather(symbol) {
   const ctx = { symbol };
+  const tasks = [];
   if (!isCrypto(symbol)) {
-    ctx.quote = await getEquityQuotes([symbol]).catch(() => null);
-    ctx.fundamentals = await getFundamentals(symbol).catch(() => null);
-    ctx.earnings = await getEarnings(symbol).catch(() => null);
+    tasks.push(getEquityQuotes([symbol]).then((v) => { ctx.quote = v; }).catch(() => { ctx.quote = null; }));
+    tasks.push(getFundamentals(symbol).then((v) => { ctx.fundamentals = v; }).catch(() => { ctx.fundamentals = null; }));
+    tasks.push(getEarnings(symbol).then((v) => { ctx.earnings = v; }).catch(() => { ctx.earnings = null; }));
   }
   if (searchEnabled()) {
     const base = symbol.replace(/-USD$/i, '');
     const query = isCrypto(symbol)
       ? `${base} crypto price news catalyst regulation ETF`
       : `${symbol} stock news earnings catalyst guidance analyst`;
-    ctx.news = formatResults(await searchWeb(query));
+    tasks.push(searchWeb(query).then((r) => { ctx.news = formatResults(r); }).catch(() => { ctx.news = '(search error)'; }));
   }
+  await Promise.all(tasks);
   return ctx;
 }
 
