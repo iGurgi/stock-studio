@@ -83,9 +83,24 @@ export async function getEarnings(symbol) {
   const r = await callTool('get_earnings_results', { symbol });
   return r.isError ? null : (r.data ?? r.text);
 }
-export async function getHistoricals(symbol) {
-  const r = await callTool('get_equity_historicals', { symbols: [symbol] });
-  return r.isError ? null : (r.data ?? r.text);
+// Daily OHLCV bars for one symbol over [startTime, endTime]. start_time is
+// REQUIRED by the tool (the old call omitted it and always errored). Confirmed
+// shape (2026-06-29): { results: [{ symbol, interval, bounds, bars: [{ begins_at,
+// open_price, high_price, low_price, close_price, volume }] }] } with string
+// prices. Returns a normalized numeric array, or [] on error.
+export async function getHistoricals(symbol, startTime, endTime = new Date().toISOString(), interval = 'day') {
+  if (!symbol || !startTime) return [];
+  const r = await callTool('get_equity_historicals', { symbols: [symbol], start_time: startTime, end_time: endTime, interval });
+  if (r.isError) return [];
+  const arr = Array.isArray(r.data) ? r.data : (r.data?.results || []);
+  return (arr[0]?.bars || []).map((b) => ({
+    date: String(b.begins_at || '').slice(0, 10),
+    open: numOrNull(b.open_price),
+    high: numOrNull(b.high_price),
+    low: numOrNull(b.low_price),
+    close: numOrNull(b.close_price),
+    volume: numOrNull(b.volume),
+  })).filter((b) => b.close != null);
 }
 
 /** Symbols across the user's Robinhood watchlists (best-effort). */

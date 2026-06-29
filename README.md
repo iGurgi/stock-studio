@@ -220,6 +220,21 @@ Layers, outermost first:
    never instructions. Because the model can't drive tools at all (we do, deterministically), an
    injection can at worst skew a *proposal* — which still has to pass the rails and the human gate.
 
+## Backtesting (signal QA before you arm)
+
+Before you flip `PLACEMENT_ENABLED=true`, sanity-check the desk's picks against what actually
+happened. `scripts/backtest.mjs` replays the desk's historical **buy** proposals against real daily
+price history — modeling a naive limit fill and reporting fill rate, hit rate, and forward returns
+over configurable horizons:
+
+```bash
+node scripts/backtest.mjs --horizons 1,5,20 --window 3 --verbose
+```
+
+Read-only and deterministic (it never places anything). v0 covers equity buys; sells (exits) and
+crypto are reported as skipped. Hypothetical and naive-fill — signal QA, **not** a performance
+guarantee. The dataset grows as the desk generates more proposals.
+
 ## Breakout discovery
 
 The desk isn't limited to a static watchlist. The **discovery** pass (`src/agent/discovery.js`)
@@ -280,6 +295,7 @@ scripts/
   get-robinhood-token.mjs  mint the Robinhood OAuth token
   mcp-discover.mjs         list the Robinhood MCP tools (diagnostics)
   dedupe-proposals.js      one-off: collapse duplicate pending proposals
+  backtest.mjs             replay historical buy proposals against price history (signal QA)
   seed-demo.mjs            populate a throwaway DB with fake data (demos/screenshots)
   check.mjs                syntax-check all source files (used by `npm run check` + CI)
 data/studio.db     created on first run
@@ -291,7 +307,6 @@ data/studio.db     created on first run
   quote, and review shapes were confirmed and tightened (2026-06-29); positions remain best-effort
   because the verification account held none.
 - Per-symbol position limits and sector exposure caps.
-- Backtest mode that replays proposals against history before you arm placement.
 - Show partial-fill **progress** in the Open orders panel. Fills and out-of-band cancels are now
   reconciled into proposal status each tracking cycle (`agent/orders.js`), but a partially-filled
   order stays `placed` without yet displaying its filled quantity.
