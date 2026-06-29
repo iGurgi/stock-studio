@@ -288,8 +288,16 @@ function renderSettings(s){
 }
 
 function renderGate(rows){
-  $('pendmeta').textContent = rows.length ? rows.length+' pending' : '';
   const g=$('gate');
+  // Don't blow away a ticket the operator is mid-approval on: if any confirm
+  // input is focused or already has typed text, leave the gate untouched until
+  // they finish — approve/dismiss clears it and the next refresh redraws.
+  const liveInputs = g.querySelectorAll('[data-confirm]');
+  if(liveInputs.length){
+    const busy = [...liveInputs].some(i => i===document.activeElement || i.value.trim()!=='');
+    if(busy) return;
+  }
+  $('pendmeta').textContent = rows.length ? rows.length+' pending' : '';
   if(!rows.length){ g.innerHTML='<div class="empty"><b>The desk is clear.</b>No trades are waiting on you. The agent keeps researching and will surface a ticket here when it finds a setup worth your call.</div>'; return; }
   g.innerHTML = rows.map(p=>{
     const rv=p.review||{};
