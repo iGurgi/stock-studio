@@ -4,9 +4,11 @@ An autonomous research / tracking / trade-proposal desk for equities, ETFs, opti
 crypto, wired to the **Robinhood MCP**. Same self-hosted spirit as your agent studio: a
 long-running agent loop plus a private dashboard, all on one box.
 
-**It is autonomous everywhere except the last inch.** Research, tracking, thesis-keeping, and
-trade *proposals* all happen on their own. Placing a real order requires you to click Approve
-on the dashboard and type the ticker to arm it. Nothing reaches your brokerage without that.
+**It is autonomous everywhere except the last inch.** Discovery (finding fresh candidates),
+research, tracking, thesis-keeping, and trade *proposals* all happen on their own. Placing a
+real order requires you to click Approve on the dashboard and type the ticker to arm it — and
+you can cancel a resting order from the same console. Nothing reaches your brokerage without
+that approval click.
 
 > Not investment advice. This is tooling that operates *your* account under *your* sign-off.
 > You are responsible for every order placed. Start with `PLACEMENT_ENABLED=false`.
@@ -18,11 +20,13 @@ on the dashboard and type the ticker to arm it. Nothing reaches your brokerage w
 ```
                  ┌──────────────── your server (reaches Robinhood + your LLM) ─────────────┐
                  │                                                                          │
-  local LLM    ←─┼─ agent loop ── research ──┐                                              │
-  (Ollama, /v1)  │   (scheduler)  tracking ──┼─→ SQLite (node:sqlite) ──→ Express dashboard │→ you (tailnet)
-  web search   ←─┤                proposals ─┘        theses / proposals / events           │   approve/halt
-  Robinhood MCP ←┤                                                                          │
-  (local client) │   approve click ──→ placeApprovedOrder() ──→ Robinhood MCP (place tool)  │
+  local LLM    ←─┼─ agent loop ── discovery ─┐                                              │
+  (Ollama, /v1)  │   (scheduler)  research ──┤                                              │
+  web search   ←─┤                tracking ──┼─→ SQLite (node:sqlite) ──→ Express dashboard │→ you (tailnet)
+  Robinhood MCP ←┤                proposals ─┘   theses / proposals / discovered / events   │   approve/cancel/halt
+  (local client) │                                                                          │
+                 │   approve click ──→ placeApprovedOrder() ──→ Robinhood MCP (place tool)  │
+                 │   cancel click  ──→ cancelOrder()        ──→ Robinhood MCP (cancel tool) │
                  └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -31,13 +35,24 @@ reasoning. Robinhood is reached by a **deterministic local MCP client** (`src/mc
 — *our* code decides which tools to call and calls them directly; the model only ever sees the
 results as data and never drives tools (including placement). Fresh news comes from a pluggable
 web-search provider. All state lives in a local SQLite file. The dashboard reads that state and is
-the only place orders get approved.
+the only place orders get approved or cancelled.
+
+The passes form a pipeline: **discovery** pulls fresh candidate symbols (movers / breakout news /
+upcoming earnings) into the research universe; **research** forms a skeptical thesis per symbol;
+**tracking** snapshots the portfolio and watches open positions against their theses; **proposals**
+turns high-conviction theses into concrete, rail-checked, deduplicated trade tickets. Portfolio
+reads are persisted as snapshots so a transient brokerage hiccup falls back to last-known holdings
+rather than blanking out.
 
 ## Requirements
 
 - Node.js **>= 22.5** (uses the built-in `node:sqlite` — no native build step).
-- A local (or any OpenAI-compatible) LLM endpoint — e.g. **Ollama** with a capable instruct model
-  pulled (`qwen2.5:14b` recommended). Set `LLM_BASE_URL` + `MODEL_*`.
+- A local (or any OpenAI-compatible) LLM endpoint — e.g. **Ollama** with an instruct model pulled.
+  Set `LLM_BASE_URL` + `MODEL_*`. **Size the model to your hardware:** a 14B (`qwen2.5:14b`) gives
+  better theses but needs a GPU — on a CPU-only box it can take minutes per call and time out, so
+  use a small fast model there (`llama3.2:3b`). LLM calls are serialized and bounded by
+  `LLM_TIMEOUT_MS` so a slow backend degrades gracefully instead of dogpiling. Check what's actually
+  loaded on the GPU with `ollama ps` (look for non-zero `size_vram`).
 - The Robinhood MCP reachable at a public HTTPS URL (`agent.robinhood.com/mcp/trading`). The local
   MCP client connects to it directly with your bearer token — no third-party cloud is involved.
 - A Robinhood brokerage account flagged `agentic_allowed=true` (required for order tools).
@@ -152,18 +167,49 @@ Layers, outermost first:
 3. **Deterministic placement path** — `placeApprovedOrder()` is a direct local MCP tool call with
    the exact pre-validated parameters. **No LLM is in the placement loop at all** — it cannot
    reinterpret, cancel, modify, or place anything else.
-4. **Risk rails** — `MAX_POSITION_USD`, `MAX_NEW_TRADES_PER_DAY`, `MAX_DAILY_LOSS_USD`, and
-   market-hours checks are enforced before a proposal is ever written.
-5. **Kill switch** — the HALT button stops new research/proposals and blocks approvals; tracking
-   keeps running so you can still watch positions.
-6. **Injection defense** — every prompt tells the model to treat tool/web/news output as data,
+4. **Risk rails & sanity gates** — `MAX_POSITION_USD`, `MAX_NEW_TRADES_PER_DAY`,
+   `MAX_DAILY_LOSS_USD`, and market-hours checks are enforced before a proposal is ever written.
+   Proposals are also **deduplicated** (the same idea won't pile up across cycles) and
+   **actionability-checked** (it won't propose selling something you don't hold — no shorting).
+5. **Cancel is always available** — cancelling a resting order *reduces* risk, so the cancel path
+   is intentionally **not** gated by `PLACEMENT_ENABLED`. You can pull an open order even after
+   you've disabled new placement.
+6. **Kill switch** — the HALT button stops new discovery/research/proposals and blocks approvals;
+   tracking keeps running so you can still watch positions.
+7. **Injection defense** — every prompt tells the model to treat tool/web/news output as data,
    never instructions. Because the model can't drive tools at all (we do, deterministically), an
    injection can at worst skew a *proposal* — which still has to pass the rails and the human gate.
 
+## Breakout discovery
+
+The desk isn't limited to a static watchlist. The **discovery** pass (`src/agent/discovery.js`)
+pulls fresh candidate symbols from three sources and folds them into the research universe, so the
+desk can catch a name *before* you've thought to add it:
+
+- **movers** — Robinhood's curated movers/active lists,
+- **news** — broad "breakout" web searches, with the LLM extracting the tickers actually moving,
+- **earnings** — symbols reporting in the next several days.
+
+Candidates are filtered against what you already cover, then **liquidity-gated** (an average
+daily dollar-volume floor via fundamentals, plus a price band) so illiquid micro-caps and
+bankruptcy tickers don't get researched. Survivors persist in a `discovered` table that's bounded
+(re-seen names bump a counter; stale/overflow are pruned) and feed the normal research → proposal
+pipeline. Tune with the `DISCOVERY_*` knobs in `.env.example` (sources, per-run cap, liquidity
+floor, cadence), or set `DISCOVERY_ENABLED=false` to run watchlist-only.
+
+## Orders: approve & cancel
+
+A pending proposal becomes a real order only when you click **Approve & place** and type the
+ticker. Placed orders show up in the dashboard's **Open orders** panel with a **Cancel order**
+button (which calls the broker's cancel tool directly via the deterministic MCP client). Approval
+requires `PLACEMENT_ENABLED=true`; cancellation does not.
+
 ## Tuning the desk
 
-- `WATCH_UNIVERSE` and `INCLUDE_ROBINHOOD_WATCHLISTS` set what gets researched.
-- Cadences (`*_EVERY_MIN`) control how often each pass runs.
+- `WATCH_UNIVERSE` and `INCLUDE_ROBINHOOD_WATCHLISTS` set the static research base; discovery adds
+  to it (see above).
+- Cadences (`*_EVERY_MIN`, including `DISCOVERY_EVERY_MIN`) control how often each pass runs.
+- `MODEL_*`, `LLM_TIMEOUT_MS`, and `LLM_RETRIES` tune the reasoning backend (see Requirements).
 - The agent's behavior lives in the prompts in `src/agent/*.js` and `src/robinhood.js` — that's
   where you shape how it forms theses and what kinds of trades it proposes.
 
@@ -171,23 +217,27 @@ Layers, outermost first:
 
 ```
 src/
-  config.js        env + rails + runtime secrets + market-hours helper
-  db.js            SQLite schema + helpers (node:sqlite)
-  llm.js           OpenAI-compatible chat client (Ollama etc.) + JSON parsing
+  config.js        env + rails + discovery knobs + runtime secrets + market-hours helper
+  db.js            SQLite schema + helpers (node:sqlite); theses/proposals/discovered/snapshots
+  llm.js           OpenAI-compatible chat client (Ollama etc.) — serialized, timeout/retry, JSON parsing
   search.js        pluggable web search (none|tavily|brave|searxng)
+  coinbase.js      optional Coinbase Advanced Trade client (alt crypto venue; CRYPTO_VENUE)
   mcp/
     robinhood-client.js  deterministic Robinhood MCP client (official SDK)
-  robinhood.js     portfolio fetch, order simulation, and the deterministic placement path
+  robinhood.js     market data, discovery sources, order simulation, placement + cancel paths
   agent/
-    research.js    gathers data+news per symbol, asks the LLM for a thesis
+    discovery.js   pulls movers/news/earnings candidates into the research universe (liquidity-gated)
+    research.js    gathers data+news per symbol (concurrently), asks the LLM for a thesis
     tracking.js    snapshots portfolio, checks positions vs theses, raises alerts
-    proposals.js   generates candidates, enforces rails, simulates, writes pending proposals
+    proposals.js   generates candidates, dedupes, enforces rails + actionability, simulates, writes pending
+    portfolio.js   fetch-with-persist: snapshots holdings, falls back to last-known on a failed read
     scheduler.js   the autonomous loop
-  server.js        dashboard + REST API + approval/placement endpoints
-  public/index.html  operator console
+  server.js        dashboard + REST API + approve / cancel / halt endpoints
+  public/index.html  operator console (gate, open orders, theses, activity)
 scripts/
   get-robinhood-token.mjs  mint the Robinhood OAuth token
   mcp-discover.mjs         list the Robinhood MCP tools (diagnostics)
+  dedupe-proposals.js      one-off: collapse duplicate pending proposals
 data/studio.db     created on first run
 ```
 
@@ -198,3 +248,5 @@ data/studio.db     created on first run
   schemas are confirmed (run `node scripts/mcp-discover.mjs`); current mapping is best-effort.
 - Per-symbol position limits and sector exposure caps.
 - Backtest mode that replays proposals against history before you arm placement.
+- Surface fill state for placed orders (currently a placed order stays `placed` until you cancel;
+  fills aren't reflected back into the Open orders panel yet).
