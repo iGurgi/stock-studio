@@ -281,6 +281,16 @@ async function findRecentOrderId(p) {
   } catch { return null; }
 }
 
+// Cancel a live broker order. Always allowed (it reduces risk) — not gated by
+// PLACEMENT_ENABLED. Returns {canceled, error}.
+export async function cancelOrder(orderId, assetType = 'equity') {
+  if (!orderId) return { canceled: false, error: 'no order id' };
+  const tool = assetType === 'option' ? 'cancel_option_order' : 'cancel_equity_order';
+  const r = await callTool(tool, { account_number: ACCT(), order_id: orderId });
+  if (r.isError) return { canceled: false, error: r.text.slice(0, 400) };
+  return { canceled: true, raw: r.text };
+}
+
 export async function placeApprovedOrder(p) {
   if (!config.placementEnabled) {
     throw new Error('PLACEMENT_ENABLED is false — refusing to place.');

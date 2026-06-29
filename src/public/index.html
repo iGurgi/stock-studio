@@ -159,6 +159,12 @@
   </div>
   <div class="gate" id="gate"></div>
 
+  <div class="eyebrow">
+    <h2>Open orders</h2><span class="rule"></span>
+    <span class="meta" id="openmeta"></span>
+  </div>
+  <div class="card" id="openorders"></div>
+
   <div class="cols">
     <div>
       <div class="eyebrow"><h2>Active theses</h2><span class="rule"></span></div>
@@ -226,6 +232,7 @@ async function refresh(){
 
     renderSettings(await api('/api/settings'));
     renderGate(await api('/api/proposals?status=pending'));
+    renderOpenOrders(await api('/api/proposals?status=placed'));
     renderTheses(await api('/api/theses'));
     renderEvents(await api('/api/events'));
     renderRuns(await api('/api/runs'));
@@ -343,6 +350,23 @@ function renderGate(rows){
   });
 }
 
+function renderOpenOrders(rows){
+  $('openmeta').textContent = rows.length ? rows.length+' open' : '';
+  const el=$('openorders');
+  if(!rows.length){ el.innerHTML='<div class="li"><span class="body">No open orders.</span></div>'; return; }
+  el.innerHTML = rows.map(p=>`<div class="li" data-id="${p.id}">
+    <span class="lead"><span class="side ${p.side}">${esc(p.side.toUpperCase())}</span> ${esc(p.symbol)}</span>
+    <span class="body">${p.qty} @ ${p.limit_price!=null?('$'+p.limit_price):esc(p.order_type)} · ${esc(p.time_in_force)} · order ${esc((p.placed_order_id||'—').slice(0,8))}</span>
+    <button class="btn reject" data-cancel>Cancel order</button>
+  </div>`).join('');
+  el.querySelectorAll('[data-cancel]').forEach(btn=>{
+    const id=btn.closest('.li').dataset.id;
+    btn.onclick=async ()=>{ if(!TOKEN) return toast('unlock first');
+      btn.disabled=true; btn.textContent='Canceling…';
+      try{ await post('/api/proposals/'+id+'/cancel',{}); toast('Order canceled'); refresh(); }
+      catch(e){ toast(e.message); btn.disabled=false; btn.textContent='Cancel order'; } };
+  });
+}
 function renderTheses(rows){
   $('theses').innerHTML = rows.length ? rows.map(t=>`<div class="li">
     <span class="lead">${esc(t.symbol)}</span>

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { config, assertConfig, equitiesOpen, secretsStatus, setSecret } from './config.js';
 import { db, now, logEvent, isHalted, setHalted, proposalsToday, markInterruptedRuns } from './db.js';
-import { placeApprovedOrder } from './robinhood.js';
+import { placeApprovedOrder, cancelOrder } from './robinhood.js';
 import { researchPass } from './agent/research.js';
 import { trackingPass } from './agent/tracking.js';
 import { proposalPass } from './agent/proposals.js';
@@ -131,6 +131,26 @@ app.post('/api/proposals/:id/reject', requireToken, (req, res) => {
   if (!info.changes) return res.status(404).json({ error: 'no such pending proposal' });
   logEvent('info', 'placement', `Operator rejected #${req.params.id}`);
   res.json({ ok: true });
+});
+
+// Cancel a live order. Not gated by PLACEMENT_ENABLED — canceling reduces risk
+// and must always be available, even when new placement is disabled.
+app.post('/api/proposals/:id/cancel', requireToken, async (req, res) => {
+  const p = db.prepare("SELECT * FROM proposals WHERE id=? AND status='placed'").get(Number(req.params.id));
+  if (!p) return res.status(404).json({ error: 'no such placed order' });
+  if (!p.placed_order_id) return res.status(409).json({ error: 'order has no broker id to cancel' });
+  try {
+    const result = await cancelOrder(p.placed_order_id, p.asset_type);
+    if (!result.canceled) {
+      logEvent('error', 'placement', `Cancel failed #${p.id} ${p.symbol}: ${result.error}`);
+      return res.status(502).json({ error: result.error || 'cancel failed' });
+    }
+    db.prepare("UPDATE proposals SET status='canceled', decided_at=? WHERE id=?").run(now(), p.id);
+    logEvent('warn', 'placement', `Order canceled #${p.id} ${p.symbol} (order ${p.placed_order_id})`);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err.message || err) });
+  }
 });
 
 app.post('/api/halt', requireToken, (req, res) => {
