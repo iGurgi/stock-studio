@@ -142,6 +142,10 @@ app.post('/api/agent/run', requireToken, async (req, res) => {
   const kind = req.body?.kind;
   const fns = { research: researchPass, tracking: trackingPass, proposal: proposalPass, discovery: discoveryPass };
   if (!fns[kind]) return res.status(400).json({ error: 'kind must be research|tracking|proposal|discovery' });
+  // Don't start a pass that's already in flight (manual triggers bypass the
+  // scheduler's own overlap guard); doubling up just contends for the LLM/MCP.
+  const active = db.prepare("SELECT 1 FROM runs WHERE kind=? AND status='running' LIMIT 1").get(kind);
+  if (active) return res.status(409).json({ error: `${kind} already running` });
   res.json({ ok: true, started: kind }); // return immediately; pass runs in background
   fns[kind]().catch((e) => logEvent('error', 'manual', `${kind} failed: ${e.message}`));
 });
