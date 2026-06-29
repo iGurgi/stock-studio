@@ -113,6 +113,14 @@ export function logEvent(level, kind, message, data) {
   );
 }
 
+// Close any runs left 'running' by a previous process (killed mid-pass on
+// restart/crash). Call once at server startup only — NOT from CLI tools, which
+// would otherwise clobber the live app's genuinely in-flight runs.
+export function markInterruptedRuns() {
+  return db.prepare("UPDATE runs SET status='error', error='interrupted (process restart)', finished_at=? WHERE status='running'")
+    .run(now()).changes;
+}
+
 export function startRun(kind) {
   const info = db.prepare('INSERT INTO runs (kind, started_at) VALUES (?, ?)').run(kind, now());
   return Number(info.lastInsertRowid);

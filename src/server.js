@@ -2,7 +2,7 @@ import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { config, assertConfig, equitiesOpen, secretsStatus, setSecret } from './config.js';
-import { db, now, logEvent, isHalted, setHalted, proposalsToday } from './db.js';
+import { db, now, logEvent, isHalted, setHalted, proposalsToday, markInterruptedRuns } from './db.js';
 import { placeApprovedOrder } from './robinhood.js';
 import { researchPass } from './agent/research.js';
 import { trackingPass } from './agent/tracking.js';
@@ -158,5 +158,9 @@ if (problems.length) {
 app.listen(config.server.port, config.server.host, () => {
   console.log(`[stock-studio] dashboard on http://${config.server.host}:${config.server.port}`);
   logEvent('info', 'server', `Dashboard up on ${config.server.host}:${config.server.port}`);
+  // A restart kills any in-flight pass; close those stale 'running' rows so they
+  // don't linger in Desk Activity. Safe here — the scheduler hasn't kicked yet.
+  const swept = markInterruptedRuns();
+  if (swept) logEvent('info', 'server', `Marked ${swept} interrupted run(s) from previous process`);
   if (process.env.RUN_SCHEDULER !== 'false') startScheduler();
 });
