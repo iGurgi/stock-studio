@@ -15,11 +15,9 @@ real order requires you to click Approve on the dashboard and type the ticker to
 you can cancel a resting order from the same console. Nothing reaches your brokerage without
 that approval click.
 
-<!-- HERO: uncomment once docs/screenshots/dashboard.png is captured (see docs/screenshots/SCREENSHOTS.md)
 <p align="center">
   <img src="docs/screenshots/dashboard.png" alt="Stock Studio operator dashboard" width="900">
 </p>
--->
 
 > Not investment advice. This is tooling that operates *your* account under *your* sign-off.
 > You are responsible for every order placed. Start with `PLACEMENT_ENABLED=false`.
@@ -63,11 +61,11 @@ account), so you can reproduce them in about a minute — see
 [Try it with demo data](#try-it-with-demo-data) and
 [docs/screenshots](docs/screenshots/SCREENSHOTS.md).
 
-<!-- Uncomment each line once the matching PNG is captured into docs/screenshots/ :
+
 <p align="center"><img src="docs/screenshots/dashboard.png"      alt="Dashboard overview"                  width="900"></p>
 <p align="center"><img src="docs/screenshots/approval-gate.png"  alt="Approval gate: type the ticker to arm" width="900"></p>
 <p align="center"><img src="docs/screenshots/open-orders.png"    alt="Open orders with cancel"             width="900"></p>
--->
+
 
 ## Requirements
 
