@@ -73,6 +73,7 @@
   .arm input{font-family:var(--mono);font-size:13px;background:var(--ink);color:var(--paper);
     border:1px solid var(--line-strong);border-radius:8px;padding:9px 11px;width:150px;letter-spacing:.08em}
   .arm input::placeholder{color:var(--muted);letter-spacing:.04em}
+  .arm .placement-off{font-family:var(--mono);font-size:12px;color:var(--brass);letter-spacing:.02em;flex:1}
   .btn{font-family:var(--disp);font-weight:600;font-size:13px;cursor:pointer;border-radius:8px;padding:9px 16px;border:1px solid var(--line-strong);background:transparent;color:var(--paper)}
   .btn.approve{background:var(--brass);border-color:var(--brass);color:#1a1405}
   .btn.approve[disabled]{opacity:.4;cursor:not-allowed;background:transparent;color:var(--muted);border-color:var(--line)}
@@ -177,6 +178,7 @@
 
 <script>
 let TOKEN = sessionStorage.getItem('cs_token') || '';
+let PLACEMENT_ON = false; // mirrors s.placementEnabled; gates the approve UI
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => (n==null||isNaN(n)) ? '—' : '$'+Number(n).toLocaleString(undefined,{maximumFractionDigits:2});
 const ago = (iso) => { if(!iso) return ''; const s=(Date.now()-new Date(iso))/1000;
@@ -202,6 +204,7 @@ function setLock(){
 async function refresh(){
   try{
     const s = await api('/api/state');
+    PLACEMENT_ON = !!s.placementEnabled;
     $('dot').className = 'dot ' + (s.halted ? 'halt' : 'live');
     $('mode').textContent = s.halted ? 'HALTED · monitoring only'
       : (s.placementEnabled ? 'live · placement armed' : 'live · placement disabled');
@@ -315,8 +318,10 @@ function renderGate(rows){
       <div class="rationale">${esc(p.rationale_md)}</div>
       <div class="sim">${sim}${warns}</div>
       <div class="arm">
-        <input placeholder="type ${esc(p.symbol)}" data-confirm />
-        <button class="btn approve" disabled data-approve>Approve &amp; place</button>
+        ${PLACEMENT_ON
+          ? `<input placeholder="type ${esc(p.symbol)}" data-confirm />
+             <button class="btn approve" disabled data-approve>Approve &amp; place</button>`
+          : `<span class="placement-off" title="Placement is disabled — set PLACEMENT_ENABLED=true to arm real orders">⚠ placement disabled — can't place orders</span>`}
         <button class="btn reject" data-reject>Dismiss</button>
       </div>
     </div>`;
@@ -325,14 +330,16 @@ function renderGate(rows){
   g.querySelectorAll('.ticket').forEach(card=>{
     const id=card.dataset.id, sym=card.dataset.sym;
     const inp=card.querySelector('[data-confirm]'), ap=card.querySelector('[data-approve]');
-    inp.oninput=()=>{ ap.disabled = inp.value.trim().toUpperCase()!==sym.toUpperCase(); };
-    ap.onclick=async ()=>{ if(!TOKEN) return toast('unlock first');
-      ap.disabled=true; ap.textContent='Placing…';
-      try{ const r=await post('/api/proposals/'+id+'/approve',{confirm:inp.value.trim()});
-        toast('Order placed · '+(r.order_id||'')); refresh();
-      }catch(e){ toast(e.message); ap.textContent='Approve & place'; } };
+    if(inp && ap){
+      inp.oninput=()=>{ ap.disabled = inp.value.trim().toUpperCase()!==sym.toUpperCase(); };
+      ap.onclick=async ()=>{ if(!TOKEN) return toast('unlock first');
+        ap.disabled=true; ap.textContent='Placing…';
+        try{ const r=await post('/api/proposals/'+id+'/approve',{confirm:inp.value.trim()});
+          toast('Order placed · '+(r.order_id||'')); inp.value=''; refresh();
+        }catch(e){ toast(e.message); ap.disabled=false; ap.textContent='Approve & place'; } };
+    }
     card.querySelector('[data-reject]').onclick=async ()=>{ if(!TOKEN) return toast('unlock first');
-      try{ await post('/api/proposals/'+id+'/reject',{}); refresh(); }catch(e){ toast(e.message); } };
+      try{ await post('/api/proposals/'+id+'/reject',{}); if(inp) inp.value=''; refresh(); }catch(e){ toast(e.message); } };
   });
 }
 
