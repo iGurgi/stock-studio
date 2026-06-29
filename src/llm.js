@@ -15,7 +15,19 @@ import { config } from './config.js';
  * @param {boolean}[opts.json]         request a JSON object response
  * @returns {Promise<{text:string, raw:object}>}
  */
-export async function chat({
+// Serialize all LLM calls process-wide. The reasoning backend is a single,
+// slow ollama box; letting research/proposal/tracking/discovery hit it
+// concurrently makes every request queue on the GPU and blow its timeout
+// (surfacing as an opaque "fetch failed"). One in flight at a time is both
+// faster end-to-end and far more reliable for this low-frequency desk.
+let _chain = Promise.resolve();
+export function chat(opts) {
+  const result = _chain.then(() => chatOnce(opts), () => chatOnce(opts));
+  _chain = result.catch(() => {}); // a failed call must not break the queue
+  return result;
+}
+
+async function chatOnce({
   model = config.llm.models.research,
   system,
   messages,
@@ -36,18 +48,33 @@ export async function chat({
   const headers = { 'content-type': 'application/json' };
   if (config.llm.apiKey) headers.authorization = `Bearer ${config.llm.apiKey}`;
 
-  const res = await fetch(`${config.llm.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`LLM ${res.status} (${config.llm.baseUrl}): ${text.slice(0, 800)}`);
+  let lastErr;
+  for (let attempt = 0; attempt <= config.llm.retries; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), config.llm.timeoutMs);
+    try {
+      const res = await fetch(`${config.llm.baseUrl}/chat/completions`, {
+        method: 'POST', headers, body: JSON.stringify(body), signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`LLM ${res.status} (${config.llm.baseUrl}): ${text.slice(0, 800)}`);
+      }
+      const data = await res.json();
+      const text = (data.choices?.[0]?.message?.content || '').trim();
+      return { text, raw: data };
+    } catch (e) {
+      // Surface the underlying network cause instead of a bare "fetch failed".
+      const cause = e.name === 'AbortError'
+        ? `timeout after ${config.llm.timeoutMs}ms`
+        : (e.cause?.code || e.cause?.message || e.message);
+      lastErr = new Error(`LLM call failed (${model} @ ${config.llm.baseUrl}): ${cause}`);
+      if (attempt < config.llm.retries) await new Promise((r) => setTimeout(r, 1500));
+    } finally {
+      clearTimeout(timer);
+    }
   }
-  const data = await res.json();
-  const text = (data.choices?.[0]?.message?.content || '').trim();
-  return { text, raw: data };
+  throw lastErr;
 }
 
 /** Concatenated assistant text (parity with the old anthropic.allText). */

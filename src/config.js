@@ -69,6 +69,8 @@ export const config = {
     baseUrl: (process.env.LLM_BASE_URL || 'http://ollama:11434/v1').replace(/\/+$/, ''),
     // Optional bearer for gated gateways; Ollama ignores it.
     get apiKey() { return getSecret('llmApiKey'); },
+    timeoutMs: num(process.env.LLM_TIMEOUT_MS, 240000), // per-request ceiling (qwen is slow)
+    retries: num(process.env.LLM_RETRIES, 1),           // retries on transient network failure
     models: {
       research: process.env.MODEL_RESEARCH || 'qwen2.5:14b',
       proposal: process.env.MODEL_PROPOSAL || 'qwen2.5:14b',
