@@ -3,11 +3,19 @@ import { config } from '../config.js';
 import { db, now, startRun, finishRun, logEvent } from '../db.js';
 import { SECURITY_PREAMBLE } from '../robinhood.js';
 import { loadPortfolio } from './portfolio.js';
+import { reconcilePlacedOrders } from './orders.js';
 import { chat, extractJson } from '../llm.js';
 
 export async function trackingPass() {
   const runId = startRun('tracking');
   try {
+    // Reflect fills / out-of-band cancels of placed orders back into our records
+    // first — independent of the portfolio fetch, and worth doing even when halted.
+    const reconciled = await reconcilePlacedOrders()
+      .catch((e) => { logEvent('warn', 'tracking', `Order reconcile failed: ${e.message || e}`); return 0; });
+
+    const recon = reconciled ? ` (${reconciled} order${reconciled > 1 ? 's' : ''} reconciled)` : '';
+
     const { pf, stale, as_of, unavailable, raw, errors } = await loadPortfolio();
     if (unavailable) {
       finishRun(runId, 'error', 'Could not fetch portfolio', raw, (errors || []).join('; ') || 'portfolio_fetch_failed');
@@ -31,7 +39,7 @@ export async function trackingPass() {
 
     // Nothing to reason about if there are no positions.
     if (!pf.positions.length) {
-      finishRun(runId, 'ok', 'Snapshot taken; no open positions');
+      finishRun(runId, 'ok', `Snapshot taken; no open positions${recon}`);
       return { ok: true };
     }
 
@@ -62,7 +70,7 @@ For each position decide if anything needs attention: stop breached, target reac
         logEvent('warn', 'tracking', `Thesis invalidated for ${sym}`);
       }
     }
-    finishRun(runId, 'ok', `${(out.alerts || []).length} alerts, ${(out.invalidate_symbols || []).length} invalidations`, text);
+    finishRun(runId, 'ok', `${(out.alerts || []).length} alerts, ${(out.invalidate_symbols || []).length} invalidations${recon}`, text);
     return { ok: true };
   } catch (err) {
     finishRun(runId, 'error', null, null, String(err.message || err));

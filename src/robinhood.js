@@ -308,6 +308,18 @@ async function findRecentOrderId(p) {
   } catch { return null; }
 }
 
+// Fetch a single placed order's current broker state by id. Returns the order
+// row ({ id, state, quantity, cumulative_quantity, ... }) or null. Confirmed
+// shape (2026-06-29): get_equity_orders returns { orders: [...] }.
+export async function getOrderById(orderId, assetType = 'equity') {
+  if (!orderId) return null;
+  const tool = assetType === 'option' ? 'get_option_orders' : 'get_equity_orders';
+  const r = await callTool(tool, { account_number: ACCT(), order_id: orderId });
+  if (r.isError) return null;
+  const arr = Array.isArray(r.data) ? r.data : (r.data?.orders || r.data?.results || []);
+  return arr.find((o) => String(o.id) === String(orderId)) || arr[0] || null;
+}
+
 // Cancel a live broker order. Always allowed (it reduces risk) — not gated by
 // PLACEMENT_ENABLED. Returns {canceled, error}.
 export async function cancelOrder(orderId, assetType = 'equity') {
