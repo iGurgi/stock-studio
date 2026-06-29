@@ -1,6 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { config } from '../config.js';
+import { refreshAccessToken } from './robinhood-auth.js';
 
 // Deterministic MCP client for the Robinhood trading server. OUR code decides
 // which tools to call and calls them directly — no LLM in the loop. This is the
@@ -32,7 +33,7 @@ async function getClient() {
  * Call a single Robinhood MCP tool and return its parsed result.
  * @returns {Promise<{isError:boolean, text:string, data:any}>}
  */
-export async function callTool(name, args = {}) {
+export async function callTool(name, args = {}, _retried = false) {
   const client = await getClient();
   let resp;
   try {
@@ -41,7 +42,13 @@ export async function callTool(name, args = {}) {
     _client = null; // drop a possibly-dead connection so the next call reconnects
     const msg = String(e?.message || e);
     if (/401|403|unauthor/i.test(msg)) {
-      throw new Error(`Robinhood MCP auth failed — token likely expired; re-mint with scripts/get-robinhood-token.mjs (${msg})`);
+      // Token likely expired — try a one-shot OAuth refresh, then retry with the
+      // new token (the dropped connection above reconnects using it).
+      if (!_retried) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) return callTool(name, args, true);
+      }
+      throw new Error(`Robinhood MCP auth failed — token expired and auto-refresh ${_retried ? 'did not help' : 'is unavailable'}; re-mint with scripts/get-robinhood-token.mjs (${msg})`);
     }
     throw e;
   }
