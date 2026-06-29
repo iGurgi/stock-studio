@@ -2,6 +2,7 @@
   "name": "stock-studio",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Self-hosted autonomous stock/crypto research, tracking & trade-proposal desk. Mirrors the agent-studio pattern, wired to the Robinhood MCP. Autonomous everywhere except the final order placement, which requires a human approval click.",
   "engines": {

@@ -1,5 +1,10 @@
 # Stock Studio
 
+> ⚠️ **Handles a real brokerage account and can place real orders with real money.** Educational /
+> personal tooling, provided as-is with no warranty — **not investment advice**. Run with
+> `PLACEMENT_ENABLED=false` until you've read the code and trust it. You are responsible for every
+> order placed. See [the safety model](#the-safety-model) and the [LICENSE](LICENSE).
+
 An autonomous research / tracking / trade-proposal desk for equities, ETFs, options, and
 crypto, wired to the **Robinhood MCP**. Same self-hosted spirit as your agent studio: a
 long-running agent loop plus a private dashboard, all on one box.
