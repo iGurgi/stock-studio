@@ -123,9 +123,16 @@
   .modal-close:hover{color:var(--paper)}
   .modal .card{border:0;border-radius:0;background:transparent;padding:6px 12px 14px}
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel-2);
-    border:1px solid var(--line-strong);border-radius:10px;padding:11px 18px;font-size:13px;
-    opacity:0;transition:opacity .25s;pointer-events:none;z-index:9}
-  .toast.show{opacity:1}
+    border:1px solid var(--line-strong);border-radius:10px;padding:11px 14px 11px 18px;font-size:13px;
+    display:flex;align-items:center;gap:14px;max-width:min(560px,92vw);
+    opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
+  .toast.show{opacity:1;pointer-events:auto}
+  .toast #toastMsg{flex:1;line-height:1.4;word-break:break-word}
+  .toast.error{border-color:rgba(217,108,108,.5);background:linear-gradient(180deg,#241a1a,var(--panel-2))}
+  .toast.error #toastMsg{color:var(--loss)}
+  .toast-x{display:none;background:transparent;border:0;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px 4px}
+  .toast-x:hover{color:var(--paper)}
+  .toast.error .toast-x{display:inline-block}
   .warnbar{border:1px solid rgba(201,162,75,.35);background:rgba(201,162,75,.07);color:var(--brass);
     border-radius:10px;padding:10px 14px;font-size:12.5px;margin-bottom:18px;font-family:var(--mono)}
 
@@ -203,7 +210,7 @@
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast"><span id="toastMsg"></span><button class="toast-x" id="toastClose" aria-label="Dismiss">✕</button></div>
 
 <script>
 let TOKEN = sessionStorage.getItem('cs_token') || '';
@@ -215,7 +222,15 @@ const ago = (iso) => { if(!iso) return ''; const s=(Date.now()-new Date(iso))/10
   if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; };
 const esc = (s) => String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
-function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
+// Info/success toasts linger then fade; errors stay until dismissed (✕).
+let toastTimer = null;
+function toast(msg, type='info'){
+  const t=$('toast');
+  $('toastMsg').textContent = msg;
+  t.className = 'toast show' + (type==='error' ? ' error' : '');
+  clearTimeout(toastTimer);
+  if(type !== 'error') toastTimer = setTimeout(()=>t.classList.remove('show'), 5000);
+}
 
 async function api(path){ const r=await fetch(path); return r.json(); }
 async function post(path, body){
@@ -247,7 +262,7 @@ async function refresh(){
     halt.textContent = s.halted ? 'Resume desk' : 'HALT';
     halt.className = 'halt-btn ' + (s.halted?'off':'on');
     halt.onclick = async ()=>{ if(!TOKEN) return toast('unlock first');
-      try{ await post('/api/halt',{halted:!s.halted}); refresh(); }catch(e){ toast(e.message); } };
+      try{ await post('/api/halt',{halted:!s.halted}); refresh(); }catch(e){ toast(e.message, 'error'); } };
 
     $('warns').innerHTML = (s.configProblems&&s.configProblems.length)
       ? '<div class="warnbar">setup: '+s.configProblems.map(esc).join(' · ')+'</div>'
@@ -315,7 +330,7 @@ function renderSettings(s){
         // clear inputs so the busy-guard releases and refresh shows new status
         $('settings').querySelectorAll('[data-secret]').forEach(i=>i.value='');
         refresh();
-      }catch(e){ toast(e.message); btn.disabled=false; btn.textContent='Save credentials'; }
+      }catch(e){ toast(e.message, 'error'); btn.disabled=false; btn.textContent='Save credentials'; }
     };
   }
 }
@@ -366,10 +381,10 @@ function renderGate(rows){
         ap.disabled=true; ap.textContent='Placing…';
         try{ const r=await post('/api/proposals/'+id+'/approve',{confirm:inp.value.trim()});
           toast('Order placed · '+(r.order_id||'')); inp.value=''; refresh();
-        }catch(e){ toast(e.message); ap.disabled=false; ap.textContent='Approve & place'; } };
+        }catch(e){ toast(e.message, 'error'); ap.disabled=false; ap.textContent='Approve & place'; } };
     }
     card.querySelector('[data-reject]').onclick=async ()=>{ if(!TOKEN) return toast('unlock first');
-      try{ await post('/api/proposals/'+id+'/reject',{}); if(inp) inp.value=''; refresh(); }catch(e){ toast(e.message); } };
+      try{ await post('/api/proposals/'+id+'/reject',{}); if(inp) inp.value=''; refresh(); }catch(e){ toast(e.message, 'error'); } };
   });
 }
 
@@ -387,7 +402,7 @@ function renderOpenOrders(rows){
     btn.onclick=async ()=>{ if(!TOKEN) return toast('unlock first');
       btn.disabled=true; btn.textContent='Canceling…';
       try{ await post('/api/proposals/'+id+'/cancel',{}); toast('Order canceled'); refresh(); }
-      catch(e){ toast(e.message); btn.disabled=false; btn.textContent='Cancel order'; } };
+      catch(e){ toast(e.message, 'error'); btn.disabled=false; btn.textContent='Cancel order'; } };
   });
 }
 function renderTheses(rows){
@@ -409,6 +424,9 @@ function renderRuns(rows){
     <span class="body">${r.status==='error'?('<span style="color:var(--loss)">error: '+esc(r.error||'')+'</span>'):esc(r.summary||r.status)}</span>
     <span class="when">${ago(r.started_at)}</span></div>`).join('') || '<div class="li"><span class="body">No runs yet.</span></div>';
 }
+
+// Toast dismiss (errors persist until clicked).
+$('toastClose').onclick = () => { clearTimeout(toastTimer); $('toast').classList.remove('show'); };
 
 // Credentials modal — opened from the top bar, dismissed by ✕, backdrop, or Esc.
 const credsModal = $('credsModal');
