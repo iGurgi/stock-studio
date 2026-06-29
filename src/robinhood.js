@@ -258,6 +258,29 @@ export async function reviewOrder(p) {
 // Deterministic: a direct MCP tool call with exact, pre-validated parameters.
 // No model is involved. Called solely by the approve endpoint after a human click.
 
+// Pull the order id out of a place response, tolerating the broker's nesting
+// (top-level, or wrapped under data/order). The place_equity_order response
+// shape differs from get_equity_orders, so check a few spots.
+function extractOrderId(data) {
+  if (!data || typeof data !== 'object') return null;
+  return pick(data, ['id', 'order_id'], null)
+    ?? pick(data.order || data.data || {}, ['id', 'order_id'], null);
+}
+
+// Reconcile when the place response hid the id: find the just-placed order by
+// symbol/side among the newest orders. Best-effort — never throws.
+async function findRecentOrderId(p) {
+  try {
+    const r = await callTool('get_equity_orders', { account_number: ACCT() });
+    const arr = Array.isArray(r.data) ? r.data : (r.data?.results || r.data?.orders || []);
+    const sym = String(p.symbol).toUpperCase();
+    const match = arr
+      .filter((o) => String(o.symbol || '').toUpperCase() === sym && String(o.side || '') === p.side)
+      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
+    return match ? (match.id || match.order_id || null) : null;
+  } catch { return null; }
+}
+
 export async function placeApprovedOrder(p) {
   if (!config.placementEnabled) {
     throw new Error('PLACEMENT_ENABLED is false — refusing to place.');
@@ -269,6 +292,9 @@ export async function placeApprovedOrder(p) {
   if (r.isError) {
     return { placed: false, order_id: null, error: r.text.slice(0, 400), raw: r.text };
   }
-  const order_id = pick(r.data, ['id', 'order_id', 'ref_id'], null);
+  // The order placed; capture its id from the response, falling back to a
+  // lookup so a parsing miss never leaves a live order untracked.
+  let order_id = extractOrderId(r.data);
+  if (!order_id) order_id = await findRecentOrderId(p);
   return { placed: true, order_id, error: null, raw: r.text };
 }
