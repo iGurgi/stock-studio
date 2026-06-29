@@ -31,6 +31,15 @@ const numOrNull = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
+// Round a price to a broker-valid tick. Robinhood rejects subpenny increments
+// above $1.00 (e.g. 3.075 -> "Prices above $1.00 can't have subpenny
+// increments."); at or below $1.00 sub-penny (4dp) is allowed.
+export function roundTick(price) {
+  const n = Number(price);
+  if (!Number.isFinite(n)) return price;
+  return n > 1 ? Number(n.toFixed(2)) : Number(n.toFixed(4));
+}
+
 // ---- market data helpers (read-only) --------------------------------------
 
 // Confirmed shape (2026-06-29): get_equity_quotes returns
@@ -263,7 +272,8 @@ function orderArgs(p, extra = {}) {
     ...extra,
   };
   if (p.qty != null) args.quantity = String(p.qty);
-  if (p.limit_price != null) args.limit_price = String(p.limit_price);
+  // Always send a tick-valid price — a subpenny limit (>$1) is rejected 400.
+  if (p.limit_price != null) args.limit_price = String(roundTick(p.limit_price));
   return args;
 }
 

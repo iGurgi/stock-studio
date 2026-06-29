@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { config, equitiesOpen } from '../config.js';
 import { db, now, startRun, finishRun, logEvent, isHalted, proposalsToday } from '../db.js';
-import { reviewOrder, getEquityQuotes, getFundamentals, SECURITY_PREAMBLE } from '../robinhood.js';
+import { reviewOrder, getEquityQuotes, getFundamentals, roundTick, SECURITY_PREAMBLE } from '../robinhood.js';
 import { loadPortfolio } from './portfolio.js';
 import { chat, extractJson } from '../llm.js';
 
@@ -114,6 +114,9 @@ Propose up to ${remainingToday} trades. Set est_cost_usd ≈ qty × limit_price.
       if (!c.symbol || !c.side || !c.qty) continue;
       c.symbol = String(c.symbol).toUpperCase();
       c.asset_type = c.asset_type || 'equity';
+      // Normalize the limit to a broker-valid tick so it's right in storage, in
+      // the dashboard, and at placement (the model sometimes emits subpenny prices).
+      if (c.limit_price != null) c.limit_price = roundTick(c.limit_price);
 
       const key = propKey(c);
       if (seen.has(key)) {
