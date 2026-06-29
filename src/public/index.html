@@ -106,6 +106,22 @@
   .lock input{font-family:var(--mono);font-size:12px;background:var(--ink);color:var(--paper);
     border:1px solid var(--line-strong);border-radius:8px;padding:8px 10px;width:170px}
   .locked-note{color:var(--brass);font-size:11px;letter-spacing:.04em}
+
+  /* ---- credentials modal ---- */
+  .bar .btn.creds{padding:8px 13px;font-size:12px;color:var(--muted)}
+  .bar .btn.creds:hover{color:var(--paper);border-color:var(--line-strong)}
+  .modal-overlay{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-start;justify-content:center;
+    padding:64px 18px;background:rgba(14,19,22,.72)}
+  .modal-overlay[hidden]{display:none}
+  .modal{width:100%;max-width:640px;background:var(--panel);border:1px solid var(--line-strong);
+    border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.5);overflow:hidden}
+  .modal-head{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line)}
+  .modal-head h2{font-size:13px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;margin:0}
+  .modal-head .meta{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .modal-close{margin-left:auto;background:transparent;border:1px solid var(--line-strong);color:var(--muted);
+    border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:14px;line-height:1}
+  .modal-close:hover{color:var(--paper)}
+  .modal .card{border:0;border-radius:0;background:transparent;padding:6px 12px 14px}
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel-2);
     border:1px solid var(--line-strong);border-radius:10px;padding:11px 18px;font-size:13px;
     opacity:0;transition:opacity .25s;pointer-events:none;z-index:9}
@@ -142,16 +158,11 @@
       <input id="tok" type="password" placeholder="control token" autocomplete="off" />
       <button class="btn" id="unlock">Unlock</button>
     </div>
+    <button id="credsBtn" class="btn creds">Credentials</button>
     <button id="halt" class="halt-btn">—</button>
   </div>
 
   <div id="warns"></div>
-
-  <div class="eyebrow">
-    <h2>Credentials</h2><span class="rule"></span>
-    <span class="meta" id="setmeta"></span>
-  </div>
-  <div class="card" id="settings"></div>
 
   <div class="eyebrow">
     <h2>Awaiting your sign-off</h2><span class="rule"></span>
@@ -180,6 +191,18 @@
   <div class="card" id="runs"></div>
 
 </div>
+
+<div class="modal-overlay" id="credsModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Credentials">
+    <div class="modal-head">
+      <h2>Credentials</h2>
+      <span class="meta" id="setmeta"></span>
+      <button class="modal-close" id="credsClose" aria-label="Close">✕</button>
+    </div>
+    <div class="card" id="settings"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -386,6 +409,14 @@ function renderRuns(rows){
     <span class="body">${r.status==='error'?('<span style="color:var(--loss)">error: '+esc(r.error||'')+'</span>'):esc(r.summary||r.status)}</span>
     <span class="when">${ago(r.started_at)}</span></div>`).join('') || '<div class="li"><span class="body">No runs yet.</span></div>';
 }
+
+// Credentials modal — opened from the top bar, dismissed by ✕, backdrop, or Esc.
+const credsModal = $('credsModal');
+const closeCreds = () => { credsModal.hidden = true; };
+$('credsBtn').onclick = () => { credsModal.hidden = false; };
+$('credsClose').onclick = closeCreds;
+credsModal.onclick = (e) => { if (e.target === credsModal) closeCreds(); };
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !credsModal.hidden) closeCreds(); });
 
 setLock();
 refresh();
