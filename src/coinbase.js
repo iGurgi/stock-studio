@@ -32,6 +32,41 @@ export async function getQuotes(symbols) {
   return out;
 }
 
+const DAY_S = 86400;
+
+/**
+ * Daily OHLCV candles for a product (e.g. "BTC-USD") from startTime through
+ * endTime, normalized to the same {date, open, high, low, close, volume}
+ * shape as robinhood.js#getHistoricals so the backtest can treat both
+ * uniformly. Paginates in <=300-day windows (the API caps ~350 candles/call).
+ * Best-effort: a failed page is dropped, not fatal.
+ */
+export async function getProductCandles(productId, startTime, endTime = new Date().toISOString()) {
+  const start = Math.floor(new Date(startTime).getTime() / 1000);
+  const end = Math.floor(new Date(endTime).getTime() / 1000);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return [];
+
+  const out = [];
+  const MAX_SPAN = 300 * DAY_S;
+  for (let s = start; s < end; s += MAX_SPAN) {
+    const e = Math.min(s + MAX_SPAN, end);
+    const r = await cbRequest('GET', `/api/v3/brokerage/products/${encodeURIComponent(productId)}/candles`, {
+      query: { start: String(s), end: String(e), granularity: 'ONE_DAY' },
+    }).catch(() => null);
+    for (const c of r?.candles || []) {
+      out.push({
+        date: new Date(Number(c.start) * 1000).toISOString().slice(0, 10),
+        open: numOrNull(c.open),
+        high: numOrNull(c.high),
+        low: numOrNull(c.low),
+        close: numOrNull(c.close),
+        volume: numOrNull(c.volume),
+      });
+    }
+  }
+  return out.filter((b) => b.close != null).sort((a, b) => a.date.localeCompare(b.date));
+}
+
 /**
  * Normalized portfolio snapshot for the Coinbase (crypto) side, same shape the
  * dashboard/tracking expect from robinhood.js fetchPortfolio().
