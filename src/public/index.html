@@ -194,6 +194,12 @@
     </div>
   </div>
 
+  <div class="eyebrow">
+    <h2>Realized P&amp;L</h2><span class="rule"></span>
+    <span class="meta" id="pnlmeta"></span>
+  </div>
+  <div class="card" id="pnl"></div>
+
   <div class="eyebrow"><h2>Recent runs</h2><span class="rule"></span></div>
   <div class="card" id="runs"></div>
 
@@ -273,6 +279,7 @@ async function refresh(){
     renderOpenOrders(await api('/api/proposals?status=placed'));
     renderTheses(await api('/api/theses'));
     renderEvents(await api('/api/events'));
+    renderPnl(await api('/api/pnl'));
     renderRuns(await api('/api/runs'));
   }catch(e){ console.error(e); }
 }
@@ -417,6 +424,27 @@ function renderEvents(rows){
     <span class="lvl ${e.level}"></span>
     <span class="body">${esc(e.message)}</span>
     <span class="when">${ago(e.ts)}</span></div>`).join('') || '<div class="li"><span class="body">Quiet so far.</span></div>';
+}
+function renderPnl(d){
+  const trades = (d && d.trades) || [];
+  const s = (d && d.summary) || {};
+  $('pnlmeta').textContent = s.trades ? s.trades+' closed · win rate '+Math.round(100*(s.wins||0)/s.trades)+'%' : '';
+  const el=$('pnl');
+  if(!trades.length){ el.innerHTML='<div class="li"><span class="body">No closed trades yet — realized P&amp;L appears here once a position is exited.</span></div>'; return; }
+  const header = `<div class="li">
+    <span class="lead">Total</span>
+    <span class="body"><span class="${(s.total_pnl||0)>=0?'v gain':'v loss'}" style="font-family:var(--mono);font-size:13px">${fmt(s.total_pnl)}</span>
+      ${s.avg_r!=null?(' · avg '+Number(s.avg_r).toFixed(2)+'R'):''}</span></div>`;
+  el.innerHTML = header + trades.map(t=>{
+    const gain = t.realized_pnl_usd>=0;
+    return `<div class="li">
+      <span class="lead">${esc(t.symbol)}</span>
+      <span class="body">${t.qty} @ ${t.entry_price} → ${t.exit_price}
+        <span class="${gain?'v gain':'v loss'}" style="font-family:var(--mono);font-size:13px">${gain?'+':''}${fmt(t.realized_pnl_usd)}</span>
+        ${t.realized_r!=null?(' ('+Number(t.realized_r).toFixed(2)+'R)'):''}
+        ${t.thesis_md?(' — '+esc(t.thesis_md.slice(0,80))):''}</span>
+      <span class="when">${ago(t.closed_at)}</span></div>`;
+  }).join('');
 }
 function renderRuns(rows){
   $('runs').innerHTML = rows.slice(0,12).map(r=>`<div class="li">

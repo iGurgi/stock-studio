@@ -224,12 +224,17 @@ Propose up to ${remainingToday} trades. Set est_cost_usd ≈ qty × limit_price.
         logEvent('warn', 'proposal', `Sim error for ${c.symbol}: ${e.message}`);
       }
 
+      // Attribute back to the highest-conviction active thesis on this symbol —
+      // theses is already sorted by conviction DESC, so the first match wins.
+      const thesis = theses.find((t) => t.symbol === c.symbol);
+
       db.prepare(`INSERT INTO proposals
-        (created_at, symbol, asset_type, side, order_type, qty, limit_price, time_in_force, est_cost_usd, rationale_md, review_json, risk_json, status)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'pending')`)
+        (created_at, symbol, asset_type, side, order_type, qty, limit_price, time_in_force, est_cost_usd, rationale_md, review_json, risk_json, status, thesis_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'pending', ?)`)
         .run(now(), c.symbol, c.asset_type, c.side, c.order_type || 'limit', c.qty,
           c.limit_price ?? null, c.time_in_force || 'gfd', c.est_cost_usd ?? null,
-          c.rationale_md || '', review ? JSON.stringify(review) : null, JSON.stringify(rc.risk));
+          c.rationale_md || '', review ? JSON.stringify(review) : null, JSON.stringify(rc.risk),
+          thesis ? thesis.id : null);
       written++;
       // Accumulate this add so later candidates in the same run respect the caps.
       if (c.side === 'buy') {

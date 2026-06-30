@@ -58,6 +58,39 @@ app.get('/api/events', (req, res) => {
   res.json(db.prepare('SELECT * FROM events ORDER BY id DESC LIMIT 200').all());
 });
 
+// Realized P&L, closed-trade-level, attributed back to the thesis/proposal
+// that produced it. See agent/orders.js#attributeRealizedPnl for how `trades`
+// rows are created (FIFO match of a filled sell against earlier filled buys).
+app.get('/api/pnl', (req, res) => {
+  const trades = db.prepare(`
+    SELECT t.*, th.symbol AS thesis_symbol, th.stance AS thesis_stance, th.thesis_md,
+           bp.rationale_md AS entry_rationale, sp.rationale_md AS exit_rationale
+    FROM trades t
+    LEFT JOIN theses th ON th.id = t.thesis_id
+    LEFT JOIN proposals bp ON bp.id = t.buy_proposal_id
+    LEFT JOIN proposals sp ON sp.id = t.sell_proposal_id
+    ORDER BY t.closed_at DESC
+    LIMIT 200
+  `).all();
+
+  const summary = db.prepare(`
+    SELECT COUNT(*) trades, COALESCE(SUM(realized_pnl_usd),0) total_pnl,
+           COALESCE(SUM(CASE WHEN realized_pnl_usd > 0 THEN 1 ELSE 0 END),0) wins,
+           AVG(realized_r) avg_r
+    FROM trades
+  `).get();
+
+  const byThesis = db.prepare(`
+    SELECT thesis_id, symbol, COUNT(*) trades, COALESCE(SUM(realized_pnl_usd),0) total_pnl, AVG(realized_r) avg_r
+    FROM trades
+    WHERE thesis_id IS NOT NULL
+    GROUP BY thesis_id
+    ORDER BY total_pnl DESC
+  `).all();
+
+  res.json({ trades, summary, byThesis });
+});
+
 app.get('/api/runs', (req, res) => {
   res.json(db.prepare('SELECT id, kind, started_at, finished_at, status, summary, error FROM runs ORDER BY id DESC LIMIT 50').all());
 });
