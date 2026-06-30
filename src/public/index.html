@@ -62,6 +62,10 @@
   .side.sell{color:var(--loss);background:rgba(217,108,108,.12)}
   .sym{font-family:var(--mono);font-size:22px;font-weight:700;letter-spacing:.02em}
   .spec{font-family:var(--mono);font-size:13px;color:var(--muted)}
+  .qtyinput{font-family:var(--mono);font-size:13px;color:var(--paper);background:var(--ink);
+    border:1px solid var(--line-strong);border-radius:6px;padding:3px 6px;width:64px;
+    -moz-appearance:textfield}
+  .qtyinput::-webkit-outer-spin-button,.qtyinput::-webkit-inner-spin-button{margin-left:4px}
   .pill{margin-left:auto;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--brass);
     border:1px solid rgba(201,162,75,.35);border-radius:20px;padding:4px 11px}
   .rationale{margin:13px 0 4px;color:#d6d4cc;font-size:14.5px;max-width:74ch}
@@ -353,11 +357,13 @@ function renderSettings(s){
 function renderGate(rows){
   const g=$('gate');
   // Don't blow away a ticket the operator is mid-approval on: if any confirm
-  // input is focused or already has typed text, leave the gate untouched until
-  // they finish — approve/dismiss clears it and the next refresh redraws.
-  const liveInputs = g.querySelectorAll('[data-confirm]');
+  // or qty input is focused, already has typed text, or has an edited qty,
+  // leave the gate untouched until they finish — approve/dismiss clears it
+  // and the next refresh redraws.
+  const liveInputs = g.querySelectorAll('[data-confirm], [data-qty]');
   if(liveInputs.length){
-    const busy = [...liveInputs].some(i => i===document.activeElement || i.value.trim()!=='');
+    const busy = [...liveInputs].some(i => i===document.activeElement
+      || (i.hasAttribute('data-confirm') ? i.value.trim()!=='' : i.value !== i.defaultValue));
     if(busy) return;
   }
   $('pendmeta').textContent = rows.length ? rows.length+' pending' : '';
@@ -368,11 +374,11 @@ function renderGate(rows){
       ? 'sim fill ~ <b>'+fmt(rv.estimated_cost_usd)+'</b>'+(rv.estimated_price?(' @ <b>'+rv.estimated_price+'</b>'):'')
       : 'sim ~ <b>'+fmt(p.est_cost_usd)+'</b>';
     const warns = (rv.warnings&&rv.warnings.length)? ' · <span class="warn">'+rv.warnings.map(esc).join(' · ')+'</span>':'';
-    return `<div class="ticket" data-id="${p.id}" data-sym="${esc(p.symbol)}">
+    return `<div class="ticket" data-id="${p.id}" data-sym="${esc(p.symbol)}" data-limit="${p.limit_price ?? ''}" data-side="${esc(p.side)}">
       <div class="row1">
         <span class="side ${p.side}">${p.side.toUpperCase()}</span>
         <span class="sym">${esc(p.symbol)}</span>
-        <span class="spec">${p.qty} @ ${p.limit_price!=null?('$'+p.limit_price):p.order_type} · ${esc(p.time_in_force)} · ${esc(p.asset_type)}</span>
+        <span class="spec"><input type="number" class="qtyinput" min="0" step="any" value="${p.qty}" data-qty /> @ ${p.limit_price!=null?('$'+p.limit_price):p.order_type} · ${esc(p.time_in_force)} · ${esc(p.asset_type)}<span data-qtyest></span></span>
         <span class="pill">needs sign-off</span>
       </div>
       <div class="rationale">${esc(p.rationale_md)}</div>
@@ -389,12 +395,23 @@ function renderGate(rows){
 
   g.querySelectorAll('.ticket').forEach(card=>{
     const id=card.dataset.id, sym=card.dataset.sym;
+    const limitPrice = card.dataset.limit!=='' ? Number(card.dataset.limit) : null;
+    const qtyInp=card.querySelector('[data-qty]'), qtyEst=card.querySelector('[data-qtyest]');
+    const updateEst=()=>{
+      if(!qtyInp || !qtyEst || limitPrice==null) return;
+      const q=Number(qtyInp.value);
+      qtyEst.textContent = Number.isFinite(q) && q>0 ? ' ≈ '+fmt(q*limitPrice) : '';
+    };
+    if(qtyInp){ qtyInp.oninput=updateEst; updateEst(); }
     const inp=card.querySelector('[data-confirm]'), ap=card.querySelector('[data-approve]');
     if(inp && ap){
       inp.oninput=()=>{ ap.disabled = inp.value.trim().toUpperCase()!==sym.toUpperCase(); };
       ap.onclick=async ()=>{ if(!TOKEN) return toast('unlock first');
         ap.disabled=true; ap.textContent='Placing…';
-        try{ const r=await post('/api/proposals/'+id+'/approve',{confirm:inp.value.trim()});
+        const qtyOverride = qtyInp && qtyInp.value !== qtyInp.defaultValue ? Number(qtyInp.value) : null;
+        const body = {confirm:inp.value.trim()};
+        if(qtyOverride!=null) body.qty = qtyOverride;
+        try{ const r=await post('/api/proposals/'+id+'/approve', body);
           toast('Order placed · '+(r.order_id||'')); inp.value=''; refresh();
         }catch(e){ toast(e.message, 'error'); ap.disabled=false; ap.textContent='Approve & place'; } };
     }

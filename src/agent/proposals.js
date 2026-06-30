@@ -130,11 +130,12 @@ export async function proposalPass() {
       json: true,
       system: `${SECURITY_PREAMBLE}
 You propose at most ${remainingToday} candidate trades from the theses + current portfolio + live quotes.
-Prefer high-conviction, clear-catalyst setups. Size conservatively: no single idea may cost more than
-$${config.rails.maxPositionUsd}. Use limit orders with a limit near the current quote. You only propose —
-you never place orders. Only propose a SELL for a symbol you can see in the current portfolio positions
-(no shorting) and never sell more than the held quantity; express any other bearish view as a thesis, not a
-trade. Output ONLY JSON.`,
+Prefer high-conviction, clear-catalyst setups. Size each buy's qty so est_cost_usd (qty × limit_price) uses
+most of the $${config.rails.maxPositionUsd} per-idea budget — do not default to a token 1-share size just
+because that's under the cap; compute qty = floor(${config.rails.maxPositionUsd} / limit_price), at least 1
+share. Use limit orders with a limit near the current quote. You only propose — you never place orders.
+Only propose a SELL for a symbol you can see in the current portfolio positions (no shorting) and never sell
+more than the held quantity; express any other bearish view as a thesis, not a trade. Output ONLY JSON.`,
       messages: [{
         role: 'user',
         content: `Active theses (highest conviction first):\n${JSON.stringify(
@@ -147,8 +148,9 @@ Current portfolio:\n${JSON.stringify(pf || {}, null, 2).slice(0, 3000)}
 Propose up to ${remainingToday} trades. Set est_cost_usd ≈ qty × limit_price. Return ONLY:
 { "candidates": [
   { "symbol": "X", "asset_type": "equity"|"etf"|"crypto"|"option",
-    "side": "buy"|"sell", "order_type": "limit", "qty": 1, "limit_price": 0,
-    "time_in_force": "gfd"|"gtc", "est_cost_usd": 0,
+    "side": "buy"|"sell", "order_type": "limit",
+    "qty": <buy: floor($${config.rails.maxPositionUsd}/limit_price), at least 1; sell: up to the held qty>,
+    "limit_price": 0, "time_in_force": "gfd"|"gtc", "est_cost_usd": 0,
     "rationale_md": "why now, tied to the thesis + the invalidation level" } ] }`,
       }],
     });

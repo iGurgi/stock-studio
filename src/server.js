@@ -186,6 +186,29 @@ app.post('/api/proposals/:id/approve', requireToken, async (req, res) => {
   if ((req.body?.confirm || '').toUpperCase() !== p.symbol) {
     return res.status(400).json({ error: `type the symbol (${p.symbol}) in "confirm" to place` });
   }
+
+  // Optional operator qty override (the model sometimes under-sizes). A buy may
+  // be resized up to the position cap; a sell may only be resized down —
+  // raising a sell beyond what proposalPass already checked against held
+  // quantity would need a fresh broker lookup, which this path intentionally
+  // keeps synchronous.
+  if (req.body?.qty != null) {
+    const qty = Number(req.body.qty);
+    if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'qty must be a positive number' });
+    if (p.side === 'sell' && qty > p.qty) {
+      return res.status(400).json({ error: `sell qty can only be reduced, not increased (max ${p.qty})` });
+    }
+    if (p.side === 'buy' && p.limit_price != null && config.rails.maxPositionUsd > 0) {
+      const cost = qty * p.limit_price;
+      if (cost > config.rails.maxPositionUsd) {
+        return res.status(400).json({ error: `${qty} @ ${p.limit_price} = $${cost.toFixed(2)} exceeds the $${config.rails.maxPositionUsd} position cap` });
+      }
+    }
+    const est = p.limit_price != null ? qty * p.limit_price : p.est_cost_usd;
+    db.prepare('UPDATE proposals SET qty=?, est_cost_usd=? WHERE id=?').run(qty, est, p.id);
+    p.qty = qty; p.est_cost_usd = est;
+  }
+
   db.prepare("UPDATE proposals SET status='approved', decided_at=?, decided_by=? WHERE id=?")
     .run(now(), req.body?.by || 'operator', p.id);
   logEvent('warn', 'placement', `Operator approved #${p.id}: ${p.side} ${p.qty} ${p.symbol}`);
