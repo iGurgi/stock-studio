@@ -140,6 +140,10 @@ ensureColumn('proposals', 'filled_qty', 'filled_qty REAL');
 ensureColumn('proposals', 'filled_at', 'filled_at TEXT');
 // Buy-side only: shares from this fill not yet matched to a closing sell.
 ensureColumn('proposals', 'remaining_qty', 'remaining_qty REAL');
+// Where the idea originated (movers|news|earnings), recorded at thesis birth so
+// the scorecard can answer "which discovery source pays off?" even after the
+// `discovered` row has since been pruned. NULL means static universe/watchlist.
+ensureColumn('theses', 'discovery_source', 'discovery_source TEXT');
 
 // ---- small helpers --------------------------------------------------------
 export const now = () => new Date().toISOString();

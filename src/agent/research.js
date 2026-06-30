@@ -15,9 +15,14 @@ function upsertThesis(t) {
       .run(t.stance, t.conviction, t.thesis_md, t.target ?? null, t.stop ?? null, t.asset_type || 'equity', ts, existing.id);
     return existing.id;
   }
-  const info = db.prepare(`INSERT INTO theses (symbol, asset_type, stance, conviction, thesis_md, target, stop, created_at, updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(t.symbol, t.asset_type || 'equity', t.stance, t.conviction, t.thesis_md, t.target ?? null, t.stop ?? null, ts, ts);
+  // Record where this idea came from at birth — a discovery source (movers/news/
+  // earnings) or null for the static universe/watchlist — so the scorecard can
+  // bucket by it even after the `discovered` row is later pruned.
+  const disc = db.prepare('SELECT source FROM discovered WHERE symbol=?').get(t.symbol);
+  const info = db.prepare(`INSERT INTO theses (symbol, asset_type, stance, conviction, thesis_md, target, stop, discovery_source, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`)
+    .run(t.symbol, t.asset_type || 'equity', t.stance, t.conviction, t.thesis_md, t.target ?? null, t.stop ?? null,
+      disc ? disc.source : null, ts, ts);
   return Number(info.lastInsertRowid);
 }
 
