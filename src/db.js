@@ -79,6 +79,29 @@ CREATE TABLE IF NOT EXISTS snapshots (
   json TEXT NOT NULL
 );
 
+-- A closed round-trip: a filled sell matched FIFO against one or more earlier
+-- filled buy lots of the same symbol. One row per (buy lot, sell) slice, so a
+-- sell that drains several lots produces several rows. thesis_id is inherited
+-- from the buy lot it closes, since that's the idea the capital was committed
+-- against.
+CREATE TABLE IF NOT EXISTS trades (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  asset_type TEXT NOT NULL DEFAULT 'equity',
+  thesis_id INTEGER,
+  buy_proposal_id INTEGER NOT NULL,
+  sell_proposal_id INTEGER NOT NULL,
+  qty REAL NOT NULL,
+  entry_price REAL NOT NULL,
+  exit_price REAL NOT NULL,
+  realized_pnl_usd REAL NOT NULL,
+  realized_r REAL,
+  opened_at TEXT,
+  closed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trades_thesis ON trades(thesis_id);
+CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol);
+
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts TEXT NOT NULL,
@@ -103,6 +126,20 @@ CREATE TABLE IF NOT EXISTS discovered (
   hits INTEGER NOT NULL DEFAULT 1              -- times re-surfaced across runs
 );
 `);
+
+// ---- additive migrations ---------------------------------------------------
+// `CREATE TABLE IF NOT EXISTS` above only seeds a fresh DB; existing installs
+// need their `proposals` rows widened in place. Idempotent — checks before adding.
+function ensureColumn(table, column, ddl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
+ensureColumn('proposals', 'thesis_id', 'thesis_id INTEGER REFERENCES theses(id)');
+ensureColumn('proposals', 'fill_price', 'fill_price REAL');
+ensureColumn('proposals', 'filled_qty', 'filled_qty REAL');
+ensureColumn('proposals', 'filled_at', 'filled_at TEXT');
+// Buy-side only: shares from this fill not yet matched to a closing sell.
+ensureColumn('proposals', 'remaining_qty', 'remaining_qty REAL');
 
 // ---- small helpers --------------------------------------------------------
 export const now = () => new Date().toISOString();
