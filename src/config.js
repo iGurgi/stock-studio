@@ -120,6 +120,10 @@ export const config = {
     maxPositionUsd: num(process.env.MAX_POSITION_USD, 2000),
     maxNewTradesPerDay: num(process.env.MAX_NEW_TRADES_PER_DAY, 5),
     maxDailyLossUsd: num(process.env.MAX_DAILY_LOSS_USD, 500),
+    // Concentration caps (0 = disabled). Total cost-basis exposure to one
+    // symbol / one sector, including the proposed add, may not exceed these.
+    maxSymbolExposureUsd: num(process.env.MAX_SYMBOL_EXPOSURE_USD, 0),
+    maxSectorExposureUsd: num(process.env.MAX_SECTOR_EXPOSURE_USD, 0),
     allowOptions: bool(process.env.ALLOW_OPTIONS, true),
     allowCrypto: bool(process.env.ALLOW_CRYPTO, true),
     marketOpenEt: process.env.MARKET_OPEN_ET || '09:30',

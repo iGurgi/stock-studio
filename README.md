@@ -209,8 +209,10 @@ Layers, outermost first:
    reinterpret, cancel, modify, or place anything else.
 4. **Risk rails & sanity gates** — `MAX_POSITION_USD`, `MAX_NEW_TRADES_PER_DAY`,
    `MAX_DAILY_LOSS_USD`, and market-hours checks are enforced before a proposal is ever written.
-   Proposals are also **deduplicated** (the same idea won't pile up across cycles) and
-   **actionability-checked** (it won't propose selling something you don't hold — no shorting).
+   Optional **concentration caps** (`MAX_SYMBOL_EXPOSURE_USD`, `MAX_SECTOR_EXPOSURE_USD`) reject a
+   proposal that would push total exposure to one symbol or sector over the cap. Proposals are also
+   **deduplicated** (the same idea won't pile up across cycles) and **actionability-checked** (it
+   won't propose selling something you don't hold — no shorting).
 5. **Cancel is always available** — cancelling a resting order *reduces* risk, so the cancel path
    is intentionally **not** gated by `PLACEMENT_ENABLED`. You can pull an open order even after
    you've disabled new placement.
@@ -303,10 +305,11 @@ data/studio.db     created on first run
 
 ## Known v2 work
 
-- Confirm the equity/option **positions** field mapping against a funded account. The portfolio,
-  quote, and review shapes were confirmed and tightened (2026-06-29); positions remain best-effort
-  because the verification account held none.
-- Per-symbol position limits and sector exposure caps.
+- Confirm the **option** positions field mapping against a held option. Equity positions were
+  confirmed against a funded account (2026-06-30): `quantity` + `average_buy_price`, but the
+  position endpoint carries **no** `market_value`/`mark`, so exposure uses cost basis.
+- Use live market value (not cost basis) for the concentration caps once a per-symbol price is
+  cheaply available alongside positions.
 - Show partial-fill **progress** in the Open orders panel. Fills and out-of-band cancels are now
   reconciled into proposal status each tracking cycle (`agent/orders.js`), but a partially-filled
   order stays `placed` without yet displaying its filled quantity.
