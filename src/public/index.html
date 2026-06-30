@@ -88,6 +88,7 @@
   @media (max-width:820px){.cols{grid-template-columns:1fr}.bar{gap:14px 18px}}
 
   .card{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:6px 0}
+  .card.scroll{max-height:420px;overflow-y:auto}
   .li{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:flex-start}
   .li:last-child{border-bottom:none}
   .li .lead{font-family:var(--mono);font-weight:600;font-size:13px;min-width:62px}
@@ -186,11 +187,11 @@
   <div class="cols">
     <div>
       <div class="eyebrow"><h2>Active theses</h2><span class="rule"></span></div>
-      <div class="card" id="theses"></div>
+      <div class="card scroll" id="theses"></div>
     </div>
     <div>
       <div class="eyebrow"><h2>Desk activity</h2><span class="rule"></span></div>
-      <div class="card" id="events"></div>
+      <div class="card scroll" id="events"></div>
     </div>
   </div>
 
