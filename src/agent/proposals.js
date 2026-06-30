@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { config, equitiesOpen } from '../config.js';
 import { db, now, startRun, finishRun, logEvent, isHalted, proposalsToday } from '../db.js';
-import { reviewOrder, getEquityQuotes, getFundamentals, roundTick, SECURITY_PREAMBLE } from '../robinhood.js';
+import { reviewOrder, getEquityQuotes, getFundamentals, getFundamentalsBatch, roundTick, SECURITY_PREAMBLE } from '../robinhood.js';
 import { loadPortfolio } from './portfolio.js';
 import { chat, extractJson } from '../llm.js';
 
@@ -19,6 +19,62 @@ function heldQty(pf, c) {
     p.symbol === c.symbol &&
     (equityish ? p.asset_type === 'equity' : p.asset_type === c.asset_type));
   return match ? (Number(match.qty) || 0) : 0;
+}
+
+// Held cost-basis exposure for one equity position (qty × avg cost). The
+// position endpoint exposes no market_value, so cost basis is the proxy.
+const heldExposure = (p) => (Number(p.qty) || 0) * (Number(p.avg_cost) || 0);
+
+// Pre-compute concentration exposure once per pass: how much is committed to
+// each held symbol and each sector. Only fetches fundamentals (for sectors)
+// when the sector cap is enabled, to avoid the extra calls otherwise.
+async function buildExposureContext(pf, candidates) {
+  const positions = (pf?.positions || []).filter((p) => p.asset_type === 'equity' && p.symbol);
+  const bySymbol = new Map();
+  for (const p of positions) bySymbol.set(p.symbol, (bySymbol.get(p.symbol) || 0) + heldExposure(p));
+
+  const bySector = new Map();
+  const sectorOf = new Map();
+  if (config.rails.maxSectorExposureUsd > 0) {
+    const syms = [...new Set([
+      ...positions.map((p) => p.symbol),
+      ...candidates.map((c) => String(c.symbol || '').toUpperCase()),
+    ])].filter((s) => s && !/-USD$/i.test(s));
+    const fundamentals = syms.length ? await getFundamentalsBatch(syms).catch(() => []) : [];
+    for (const f of fundamentals) {
+      const s = String(f?.symbol || '').toUpperCase();
+      if (s && f.sector) sectorOf.set(s, f.sector);
+    }
+    for (const p of positions) {
+      const sec = sectorOf.get(p.symbol);
+      if (sec) bySector.set(sec, (bySector.get(sec) || 0) + heldExposure(p));
+    }
+  }
+  return { bySymbol, bySector, sectorOf };
+}
+
+// Concentration caps: a candidate may not push total exposure to its symbol or
+// its sector over the configured cap. Disabled caps (0) are skipped.
+function exposureCheck(c, ctx) {
+  const est = Number(c.est_cost_usd) || (Number(c.qty) * Number(c.limit_price)) || 0;
+  const { maxSymbolExposureUsd, maxSectorExposureUsd } = config.rails;
+
+  if (maxSymbolExposureUsd > 0) {
+    const total = (ctx.bySymbol.get(c.symbol) || 0) + est;
+    if (total > maxSymbolExposureUsd) {
+      return { ok: false, reason: `symbol exposure $${total.toFixed(0)} > cap $${maxSymbolExposureUsd} (${c.symbol})` };
+    }
+  }
+  if (maxSectorExposureUsd > 0 && c.asset_type !== 'crypto') {
+    const sector = ctx.sectorOf.get(c.symbol);
+    if (sector) {
+      const total = (ctx.bySector.get(sector) || 0) + est;
+      if (total > maxSectorExposureUsd) {
+        return { ok: false, reason: `sector exposure $${total.toFixed(0)} > cap $${maxSectorExposureUsd} (${sector})` };
+      }
+    }
+  }
+  return { ok: true };
 }
 
 // Apply the hard risk rails to a single candidate. Returns {ok, reason, risk}.
@@ -108,6 +164,9 @@ Propose up to ${remainingToday} trades. Set est_cost_usd ≈ qty × limit_price.
         .map(propKey),
     );
 
+    // Concentration exposure (held + accumulated within this run).
+    const exposure = await buildExposureContext(pf, candidates);
+
     let written = 0;
     for (const c of candidates) {
       if (written >= remainingToday) break;
@@ -146,6 +205,12 @@ Propose up to ${remainingToday} trades. Set est_cost_usd ≈ qty × limit_price.
         continue;
       }
 
+      const xc = exposureCheck(c, exposure);
+      if (!xc.ok) {
+        logEvent('warn', 'proposal', `Rejected candidate ${c.symbol}: ${xc.reason}`);
+        continue;
+      }
+
       // Simulate before persisting so the operator sees a real fill estimate.
       let review = null;
       try {
@@ -166,6 +231,13 @@ Propose up to ${remainingToday} trades. Set est_cost_usd ≈ qty × limit_price.
           c.limit_price ?? null, c.time_in_force || 'gfd', c.est_cost_usd ?? null,
           c.rationale_md || '', review ? JSON.stringify(review) : null, JSON.stringify(rc.risk));
       written++;
+      // Accumulate this add so later candidates in the same run respect the caps.
+      if (c.side === 'buy') {
+        const est = Number(c.est_cost_usd) || (Number(c.qty) * Number(c.limit_price)) || 0;
+        exposure.bySymbol.set(c.symbol, (exposure.bySymbol.get(c.symbol) || 0) + est);
+        const sec = exposure.sectorOf.get(c.symbol);
+        if (sec) exposure.bySector.set(sec, (exposure.bySector.get(sec) || 0) + est);
+      }
       logEvent('info', 'proposal', `New pending proposal: ${c.side} ${c.qty} ${c.symbol} @ ${c.limit_price ?? 'mkt'}`);
     }
 
