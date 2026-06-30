@@ -89,6 +89,10 @@ export const config = {
     baseUrl: process.env.SEARCH_BASE_URL || '', // SearXNG instance URL
     maxResults: num(process.env.SEARCH_MAX_RESULTS, 5),
     recencyDays: num(process.env.SEARCH_RECENCY_DAYS, 14), // news lookback window
+    // Hard daily ceiling on outbound search calls, independent of cadence/universe
+    // size — a paid-API free tier (e.g. Tavily's ~1000/month) shouldn't be exhaustible
+    // just because the universe grew or cadence got misconfigured. 0 disables the cap.
+    maxCallsPerDay: num(process.env.SEARCH_MAX_CALLS_PER_DAY, 30),
   },
   robinhood: {
     mcpUrl: process.env.ROBINHOOD_MCP_URL || 'https://agent.robinhood.com/mcp/trading',

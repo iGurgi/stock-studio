@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { searchCallsToday, recordSearchCall, getKv, setKv, logEvent } from './db.js';
 
 // Pluggable web search for the research pass. Replaces Anthropic's hosted
 // web_search. Returns a normalized list of { title, url, snippet }. When no
@@ -6,6 +7,23 @@ import { config } from './config.js';
 
 export function searchEnabled() {
   return config.search.provider && config.search.provider !== 'none';
+}
+
+// Hard daily ceiling so a misconfigured cadence/universe can't silently burn
+// through a paid API's free tier. Once hit, searchWeb no-ops for the rest of
+// the day (same as search being disabled) — research/discovery keep running
+// model-only rather than failing. Logged once per day, not once per call.
+function overBudget() {
+  const cap = config.search.maxCallsPerDay;
+  if (cap <= 0) return false;
+  if (searchCallsToday() < cap) return false;
+  const day = new Date().toISOString().slice(0, 10);
+  const warnedKey = `search_throttle_warned:${day}`;
+  if (!getKv(warnedKey)) {
+    setKv(warnedKey, '1');
+    logEvent('warn', 'search', `Daily search budget (${cap}) reached — further web searches skipped until tomorrow`);
+  }
+  return true;
 }
 
 async function tavily(query, n) {
@@ -59,6 +77,8 @@ async function searxng(query, n) {
  */
 export async function searchWeb(query) {
   if (!searchEnabled()) return [];
+  if (overBudget()) return [];
+  recordSearchCall();
   const n = config.search.maxResults;
   try {
     switch (config.search.provider) {

@@ -224,3 +224,14 @@ export function proposalsToday() {
   const row = db.prepare("SELECT COUNT(*) c FROM proposals WHERE substr(created_at,1,10)=? AND status != 'expired'").get(day);
   return row.c;
 }
+
+// ---- daily outbound-search budget (search.js) -----------------------------
+// Reuses the generic kv store, one counter row per UTC day. Cheap to keep
+// forever (one row/day); no pruning needed at this volume.
+export function searchCallsToday() {
+  return Number(getKv(`search_calls:${new Date().toISOString().slice(0, 10)}`, '0'));
+}
+export function recordSearchCall() {
+  const key = `search_calls:${new Date().toISOString().slice(0, 10)}`;
+  setKv(key, searchCallsToday() + 1);
+}
