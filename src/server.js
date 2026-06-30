@@ -91,6 +91,53 @@ app.get('/api/pnl', (req, res) => {
   res.json({ trades, summary, byThesis });
 });
 
+// Desk scorecard: equity curve (account value over time — already nets realized
+// + unrealized) plus win-rate/avg-R/hit-rate bucketed by thesis conviction and
+// by discovery source, built on the per-trade attribution from /api/pnl.
+// win_rate is per closed trade; hit_rate is per thesis (did the idea ever
+// produce a winner) — the two diverge when one thesis is exited in slices.
+app.get('/api/scorecard', (req, res) => {
+  const equityCurve = db.prepare("SELECT taken_at, json FROM snapshots WHERE kind='portfolio' ORDER BY id ASC LIMIT 500")
+    .all()
+    .map((r) => {
+      try { return { taken_at: r.taken_at, account_value: JSON.parse(r.json)?.portfolio?.account_value ?? null }; }
+      catch { return { taken_at: r.taken_at, account_value: null }; }
+    })
+    .filter((p) => p.account_value != null);
+
+  const bucketStats = (bucketSql) => {
+    const trades = db.prepare(`
+      SELECT ${bucketSql} AS bucket, COUNT(*) trades,
+             SUM(CASE WHEN t.realized_pnl_usd > 0 THEN 1 ELSE 0 END) wins,
+             AVG(t.realized_r) avg_r
+      FROM trades t JOIN theses th ON th.id = t.thesis_id
+      GROUP BY bucket
+    `).all();
+    const hits = new Map(db.prepare(`
+      SELECT ${bucketSql} AS bucket, COUNT(DISTINCT th.id) theses,
+             COUNT(DISTINCT CASE WHEN t.realized_pnl_usd > 0 THEN th.id END) theses_with_win
+      FROM theses th JOIN trades t ON t.thesis_id = th.id
+      GROUP BY bucket
+    `).all().map((h) => [h.bucket, h]));
+    return trades.map((b) => {
+      const h = hits.get(b.bucket) || { theses: 0, theses_with_win: 0 };
+      return {
+        bucket: b.bucket,
+        trades: b.trades,
+        win_rate: b.trades ? b.wins / b.trades : null,
+        avg_r: b.avg_r,
+        hit_rate: h.theses ? h.theses_with_win / h.theses : null,
+      };
+    });
+  };
+
+  res.json({
+    equityCurve,
+    byConviction: bucketStats('th.conviction').sort((a, b) => b.bucket - a.bucket),
+    byDiscoverySource: bucketStats("COALESCE(th.discovery_source,'watchlist')"),
+  });
+});
+
 app.get('/api/runs', (req, res) => {
   res.json(db.prepare('SELECT id, kind, started_at, finished_at, status, summary, error FROM runs ORDER BY id DESC LIMIT 50').all());
 });

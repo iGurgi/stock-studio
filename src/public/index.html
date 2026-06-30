@@ -196,10 +196,16 @@
   </div>
 
   <div class="eyebrow">
+    <h2>Desk scorecard</h2><span class="rule"></span>
+    <span class="meta" id="scoremeta"></span>
+  </div>
+  <div class="card" id="scorecard"></div>
+
+  <div class="eyebrow">
     <h2>Realized P&amp;L</h2><span class="rule"></span>
     <span class="meta" id="pnlmeta"></span>
   </div>
-  <div class="card" id="pnl"></div>
+  <div class="card" id="pnlCard"></div>
 
   <div class="eyebrow"><h2>Recent runs</h2><span class="rule"></span></div>
   <div class="card" id="runs"></div>
@@ -280,6 +286,7 @@ async function refresh(){
     renderOpenOrders(await api('/api/proposals?status=placed'));
     renderTheses(await api('/api/theses'));
     renderEvents(await api('/api/events'));
+    renderScorecard(await api('/api/scorecard'));
     renderPnl(await api('/api/pnl'));
     renderRuns(await api('/api/runs'));
   }catch(e){ console.error(e); }
@@ -426,11 +433,54 @@ function renderEvents(rows){
     <span class="body">${esc(e.message)}</span>
     <span class="when">${ago(e.ts)}</span></div>`).join('') || '<div class="li"><span class="body">Quiet so far.</span></div>';
 }
+// Inline SVG sparkline — no chart library in this codebase, and a polyline
+// over a handful of snapshot points doesn't need one.
+function sparkline(points){
+  if(points.length<2) return '';
+  const w=640,h=80,pad=4;
+  const vals=points.map(p=>p.account_value);
+  const min=Math.min(...vals), max=Math.max(...vals);
+  const span=(max-min)||1;
+  const x=(i)=> pad + (w-2*pad) * i/(points.length-1);
+  const y=(v)=> h-pad - (h-2*pad) * (v-min)/span;
+  const d = points.map((p,i)=> (i===0?'M':'L')+x(i).toFixed(1)+','+y(p.account_value).toFixed(1)).join(' ');
+  const up = vals[vals.length-1] >= vals[0];
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:80px;display:block" preserveAspectRatio="none">
+    <path d="${d}" fill="none" stroke="${up?'var(--gain)':'var(--loss)'}" stroke-width="2" />
+  </svg>`;
+}
+const pct = (n) => n==null ? '—' : Math.round(100*n)+'%';
+function bucketRow(label, b){
+  return `<div class="li">
+    <span class="lead">${esc(label)}</span>
+    <span class="body">${b.trades} trades · ${pct(b.win_rate)} win · ${b.avg_r!=null?Number(b.avg_r).toFixed(2)+'R avg':'— R avg'} · ${pct(b.hit_rate)} hit rate</span>
+  </div>`;
+}
+function renderScorecard(d){
+  const curve = (d && d.equityCurve) || [];
+  const byConv = (d && d.byConviction) || [];
+  const bySrc = (d && d.byDiscoverySource) || [];
+  $('scoremeta').textContent = curve.length ? curve.length+' snapshots' : '';
+
+  const curveHtml = curve.length>=2
+    ? `<div class="li">${sparkline(curve)}</div>`
+    : '<div class="li"><span class="body">Equity curve needs at least two portfolio snapshots — check back after a couple of tracking passes.</span></div>';
+
+  const convHtml = byConv.length
+    ? byConv.map(b=>bucketRow('Conviction '+b.bucket, b)).join('')
+    : '<div class="li"><span class="body">No closed trades yet by conviction.</span></div>';
+
+  const srcHtml = bySrc.length
+    ? bySrc.map(b=>bucketRow(b.bucket==='watchlist'?'Watchlist/universe':b.bucket, b)).join('')
+    : '<div class="li"><span class="body">No closed trades yet by discovery source.</span></div>';
+
+  $('scorecard').innerHTML = curveHtml + convHtml + srcHtml;
+}
 function renderPnl(d){
   const trades = (d && d.trades) || [];
   const s = (d && d.summary) || {};
   $('pnlmeta').textContent = s.trades ? s.trades+' closed · win rate '+Math.round(100*(s.wins||0)/s.trades)+'%' : '';
-  const el=$('pnl');
+  const el=$('pnlCard');
   if(!trades.length){ el.innerHTML='<div class="li"><span class="body">No closed trades yet — realized P&amp;L appears here once a position is exited.</span></div>'; return; }
   const header = `<div class="li">
     <span class="lead">Total</span>
